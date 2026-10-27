@@ -38,3 +38,39 @@ Run on Windows PowerShell:
 
 ## Jira Task
 S1TMS-6 — Separate queues and signal phases per direction
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+## Configurable Traffic Density and Signal Timing
+
+### Overview
+The simulation allows users to configure traffic density and green signal duration before each run.
+
+### Configuration Limits
+- **Traffic density:** 1–100 vehicles per direction.
+- **Green signal duration:** 1–120 seconds per direction.
+
+### Input Validation
+The program validates user input and displays an error message when the input is:
+- Zero or negative.
+- Non-numeric.
+- Outside the permitted range.
+
+The program continues requesting input until a valid value is entered.
+
+### Simulation Behaviour
+- Separate vehicle queues are maintained for North, South, East, and West.
+- Only the direction with the green signal can process a vehicle.
+- Each signal phase remains active for the configured duration.
+- The configured settings apply to the current simulation run.
+
+### Testing
+- Minimum valid values: density `1`, duration `1`.
+- Maximum density: `100`.
+- Maximum signal duration: `120`.
+- Density values `0`, `-1`, and `101` are rejected.
+- Signal duration values `0`, `-1`, and `121` are rejected.
+- Non-numeric input is rejected.
+- The simulation was verified to process vehicles in the correct direction during each signal phase.
