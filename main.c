@@ -1,9 +1,45 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #define NUM_DIRECTIONS 4
 #define MAX_VEHICLES 100
+#define MAX_DENSITY 100
+#define MAX_SIGNAL_DURATION 120
+
+// Read and validate a positive integer within the allowed range
+int getValidatedInput(const char *prompt, int min, int max) {
+    char input[100];
+    char extra;
+    int value;
+    int result;
+
+    while (1) {
+        printf("%s", prompt);
+
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            printf("Error: Unable to read input.\n");
+            exit(1);
+        }
+
+        result = sscanf(input, " %d %c", &value, &extra);
+
+        if (result != 1) {
+            printf("Error: Enter a valid whole number.\n");
+            continue;
+        }
+
+        if (value < min || value > max) {
+            printf("Error: Enter a value between %d and %d.\n",
+                   min, max);
+            continue;
+        }
+
+        return value;
+    }
+}
 
 // Traffic directions
 enum Direction {
@@ -91,32 +127,70 @@ void processGreenDirection(Queue queues[], int greenDirection) {
     }
 }
 
+// Keep a green signal active for the configured duration
+void runSignalPhase(int duration) {
+    time_t startTime = time(NULL);
+
+    printf("Green signal remains active for %d seconds.\n", duration);
+
+    while (time(NULL) - startTime < duration) {
+        // Wait until the configured duration has elapsed
+    }
+
+    printf("Green signal phase completed.\n");
+}
+
 
 
 int main(void) {
     Queue queues[NUM_DIRECTIONS];
-    int i;
+    int i, j;
     int nextVehicleId = 1;
-    int vehicleCount[NUM_DIRECTIONS] = {3, 2, 4, 1};
+    int density;
+    int signalDuration;
+
+    printf("=== TRAFFIC MANAGEMENT CONFIGURATION ===\n");
+
+    density = getValidatedInput(
+        "Enter traffic density (1-100 vehicles per direction): ",
+        1, MAX_DENSITY
+    );
+
+    signalDuration = getValidatedInput(
+        "Enter green signal duration (1-120 seconds): ",
+        1, MAX_SIGNAL_DURATION
+    );
+
+    printf("\nConfiguration saved for this run.\n");
+    printf("Traffic density: %d vehicles per direction\n", density);
+    printf("Green signal duration: %d seconds per direction\n",
+           signalDuration);
 
     for (i = 0; i < NUM_DIRECTIONS; i++) {
         initializeQueue(&queues[i]);
     }
 
     for (i = 0; i < NUM_DIRECTIONS; i++) {
-        int j;
-        for (j = 0; j < vehicleCount[i]; j++) {
-            enqueue(&queues[i], nextVehicleId++);
+        for (j = 0; j < density; j++) {
+            if (!enqueue(&queues[i], nextVehicleId++)) {
+                printf("Error: Queue is full.\n");
+                return 1;
+            }
         }
     }
 
-    printf("TRAFFIC MANAGEMENT SIMULATION\n");
+    printf("\nTRAFFIC MANAGEMENT SIMULATION\n");
 
-    // Give each direction one green phase
-    for (i = 0; i < NUM_DIRECTIONS; i++) {
-        printf("\n--- SIGNAL PHASE %d ---\n", i + 1);
+        for (i = 0; i < NUM_DIRECTIONS; i++) {
+        printf("\n--- SIGNAL PHASE %d (%d seconds) ---\n",
+               i + 1, signalDuration);
+
         displayQueues(queues, i);
+
+        runSignalPhase(signalDuration);
+
         processGreenDirection(queues, i);
+
         displayQueues(queues, i);
     }
 
