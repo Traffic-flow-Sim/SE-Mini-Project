@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <queue.h> 
 /*
  * Basic Traffic Management System simulation.
  * One queue, one signal, deterministic vehicle arrivals.
@@ -8,7 +8,6 @@
  */
 
 #define DEFAULT_TICKS       20
-#define QUEUE_CAPACITY      8
 #define ARRIVAL_INTERVAL    2
 #define GREEN_DURATION      3
 #define YELLOW_DURATION     1

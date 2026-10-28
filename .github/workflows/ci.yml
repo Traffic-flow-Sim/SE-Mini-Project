@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,9 +21,18 @@ jobs:
 
       - name: Compile simulation
         run: |
-          gcc -std=c11 -Wall -Wextra -Wpedantic \
-            -Werror traffic_simulation.c \
+          gcc -std=c11 -Wall -Wextra -Wpedantic -Werror \
+            traffic_simulation.c queue.c \
             -o traffic_simulation
 
-      - name: Run simulation
+      - name: Run simulation smoke test
         run: ./traffic_simulation
+
+      - name: Compile queue tests
+        run: |
+          gcc -std=c11 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_queue.c queue.c \
+            -o test_queue
+
+      - name: Run queue tests
+        run: ./test_queue
