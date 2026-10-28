@@ -19,59 +19,6 @@ typedef enum {
     YELLOW
 } SignalState;
 
-typedef struct {
-    unsigned int id;
-    unsigned int arrival_tick;
-} Vehicle;
-
-typedef struct {
-    Vehicle items[QUEUE_CAPACITY];
-    int front;
-    int size;
-} VehicleQueue;
-
-static void queue_init(VehicleQueue *queue)
-{
-    queue->front = 0;
-    queue->size = 0;
-}
-
-static int queue_is_empty(const VehicleQueue *queue)
-{
-    return queue->size == 0;
-}
-
-static int queue_is_full(const VehicleQueue *queue)
-{
-    return queue->size == QUEUE_CAPACITY;
-}
-
-static int enqueue(VehicleQueue *queue, Vehicle vehicle)
-{
-    int rear;
-
-    if (queue_is_full(queue)) {
-        return 0;
-    }
-
-    rear = (queue->front + queue->size) % QUEUE_CAPACITY;
-    queue->items[rear] = vehicle;
-    queue->size++;
-    return 1;
-}
-
-static int dequeue(VehicleQueue *queue, Vehicle *vehicle)
-{
-    if (queue_is_empty(queue)) {
-        return 0;
-    }
-
-    *vehicle = queue->items[queue->front];
-    queue->front = (queue->front + 1) % QUEUE_CAPACITY;
-    queue->size--;
-    return 1;
-}
-
 static const char *signal_name(SignalState state)
 {
     switch (state) {
