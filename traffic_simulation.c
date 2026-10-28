@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <queue.h> 
+#include "queue.h"
 /*
  * Basic Traffic Management System simulation.
  * One queue, one signal, deterministic vehicle arrivals.
