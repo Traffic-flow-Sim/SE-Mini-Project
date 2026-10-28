@@ -2,7 +2,7 @@
 #ifndef QUEUE_H
 #define QUEUE_H
 
-#define QUEUE_CAPACITY 8
+#define QUEUE_CAPACITY 100
 
 typedef struct {
     unsigned int id;

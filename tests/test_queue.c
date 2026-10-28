@@ -81,25 +81,28 @@ static void test_circular_wraparound(void)
         assert(enqueue(&queue, make_vehicle(i)));
     }
 
-    /* Free four slots at the front. */
     for (i = 1; i <= 4; i++) {
         assert(dequeue(&queue, &result));
         assert(result.id == i);
     }
 
-    /* These insertions wrap around to the start of the array. */
-    for (i = 9; i <= 12; i++) {
+    for (i = QUEUE_CAPACITY + 1; i <= QUEUE_CAPACITY + 4; i++) {
         assert(enqueue(&queue, make_vehicle(i)));
     }
 
-    /* FIFO order must survive wraparound. */
-    for (i = 5; i <= 12; i++) {
+    for (i = 5; i <= QUEUE_CAPACITY; i++) {
+        assert(dequeue(&queue, &result));
+        assert(result.id == i);
+    }
+
+    for (i = QUEUE_CAPACITY + 1; i <= QUEUE_CAPACITY + 4; i++) {
         assert(dequeue(&queue, &result));
         assert(result.id == i);
     }
 
     assert(queue_is_empty(&queue));
 }
+
 
 int main(void)
 {
