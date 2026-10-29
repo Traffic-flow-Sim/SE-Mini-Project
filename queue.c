@@ -1,27 +1,39 @@
 
 #include "queue.h"
 
+#include <stddef.h>
+
 void queue_init(VehicleQueue *queue)
 {
+    if (queue == NULL) {
+        return;
+    }
+
     queue->front = 0;
     queue->size = 0;
+    queue->dropped = 0;
 }
 
 int queue_is_empty(const VehicleQueue *queue)
 {
-    return queue->size == 0;
+    return queue == NULL || queue->size == 0;
 }
 
 int queue_is_full(const VehicleQueue *queue)
 {
-    return queue->size == QUEUE_CAPACITY;
+    return queue == NULL || queue->size == QUEUE_CAPACITY;
 }
 
 int enqueue(VehicleQueue *queue, Vehicle vehicle)
 {
     int rear;
 
+    if (queue == NULL) {
+        return 0;
+    }
+
     if (queue_is_full(queue)) {
+        queue->dropped++;
         return 0;
     }
 
@@ -34,7 +46,7 @@ int enqueue(VehicleQueue *queue, Vehicle vehicle)
 
 int dequeue(VehicleQueue *queue, Vehicle *vehicle)
 {
-    if (queue_is_empty(queue)) {
+    if (vehicle == NULL || queue_is_empty(queue)) {
         return 0;
     }
 
