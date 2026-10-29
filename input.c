@@ -1,3 +1,4 @@
+
 #include "input.h"
 
 #include <ctype.h>
@@ -20,25 +21,38 @@ int read_line_bounded(FILE *in, char *buf, size_t size)
     }
 
     length = strlen(buf);
+
+    /* A complete line was read, including its newline. */
     if (length > 0 && buf[length - 1] == '\n') {
         buf[--length] = '\0';
+
+        /* Remove a carriage return from Windows-style line endings. */
         if (length > 0 && buf[length - 1] == '\r') {
             buf[length - 1] = '\0';
         }
+
         return 1;
     }
 
     /*
-     * No newline was read: this is either the last line of the input, a line
-     * that exactly filled the buffer, or an oversized line.
+     * No newline was read. Check the next character to determine
+     * whether the input line ended or exceeded the buffer.
      */
     c = getc(in);
-    if (c == EOF || c == '\n') {
+
+    if (c == EOF) {
+        /* The final line can end without a newline. */
         return 1;
     }
 
+    if (c == '\n') {
+        /* The input exactly filled the buffer before its newline. */
+        return 1;
+    }
+
+    /* The line is too long. Discard the remaining characters. */
     while (c != '\n' && c != EOF) {
-        c = getc(in);   /* discard the rest of the oversized line */
+        c = getc(in);
     }
 
     return 0;
@@ -56,12 +70,14 @@ InputStatus parse_int_strict(const char *text, int min, int max, int *out)
     while (isspace((unsigned char)*text)) {
         text++;
     }
+
     if (*text == '\0') {
         return INPUT_NOT_A_NUMBER;
     }
 
     errno = 0;
     value = strtol(text, &end, 10);
+
     if (end == text) {
         return INPUT_NOT_A_NUMBER;
     }
@@ -69,6 +85,7 @@ InputStatus parse_int_strict(const char *text, int min, int max, int *out)
     while (isspace((unsigned char)*end)) {
         end++;
     }
+
     if (*end != '\0') {
         return INPUT_NOT_A_NUMBER;
     }
@@ -97,18 +114,22 @@ int prompt_int(FILE *in, FILE *out, const char *prompt,
         fflush(out);
 
         read_status = read_line_bounded(in, line, sizeof line);
+
         if (read_status < 0) {
             return -1;
         }
+
         if (read_status == 0) {
             fprintf(out, "Error: Input is too long.\n");
             continue;
         }
 
         status = parse_int_strict(line, min, max, value);
+
         if (status == INPUT_OK) {
             return 1;
         }
+
         if (status == INPUT_NOT_A_NUMBER) {
             fprintf(out, "Error: Enter a valid whole number.\n");
         } else {
