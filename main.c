@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include "input.h"
 #include "queue.h"
 
 #define NUM_DIRECTIONS 4
@@ -21,34 +22,15 @@ static const char *directionNames[NUM_DIRECTIONS] = {
 
 static int getValidatedInput(const char *prompt, int min, int max)
 {
-    char input[100];
-    char extra;
     int value;
-    int result;
 
-    while (1) {
-        printf("%s", prompt);
-
-        if (fgets(input, sizeof(input), stdin) == NULL) {
-            fprintf(stderr, "Error: Unable to read input.\n");
-            exit(EXIT_FAILURE);
-        }
-
-        result = sscanf(input, " %d %c", &value, &extra);
-
-        if (result != 1) {
-            printf("Error: Enter a valid whole number.\n");
-            continue;
-        }
-
-        if (value < min || value > max) {
-            printf("Error: Enter a value between %d and %d.\n",
-                   min, max);
-            continue;
-        }
-
-        return value;
+    /* Bounded, strict parsing lives in input.c so it can be unit tested. */
+    if (prompt_int(stdin, stdout, prompt, min, max, &value) != 1) {
+        fprintf(stderr, "Error: Unable to read input.\n");
+        exit(EXIT_FAILURE);
     }
+
+    return value;
 }
 
 static void displayQueues(
