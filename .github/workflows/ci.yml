@@ -6,32 +6,85 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  # Every warning is an error. -I. lets tests include the project headers.
+  CFLAGS: -std=c11 -Wall -Wextra -Wpedantic -Werror -I.
+
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Check out source code
         uses: actions/checkout@v4
 
-      - name: Install GCC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc
+      - name: Show compiler
+        run: gcc --version
 
       - name: Compile integrated application
         run: |
-          gcc -std=c11 -Wall -Wextra -Wpedantic -Werror \
-            main.c queue.c -o traffic_management
+          # Every module except the two programs with their own main().
+          LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
+          gcc $CFLAGS main.c $LIB -o traffic_management
+
+      - name: Compile basic single-direction simulation
+        run: gcc $CFLAGS traffic_simulation.c queue.c -o traffic_simulation
 
       - name: Run application smoke test
-        run: |
-          printf "1\n1\n" | timeout 10s ./traffic_management
+        run: printf '1\n1\n' | ./traffic_management
 
-      - name: Compile queue tests
-        run: |
-          gcc -std=c11 -Wall -Wextra -Wpedantic -Werror \
-            tests/test_queue.c queue.c -o test_queue
+      - name: Run basic simulation smoke test
+        run: ./traffic_simulation
 
-      - name: Run queue tests
-        run: ./test_queue
+      - name: Build and run all tests
+        run: |
+          LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
+          for test_source in tests/test_*.c; do
+            test_name=$(basename "$test_source" .c)
+            echo "::group::$test_name"
+            gcc $CFLAGS "$test_source" $LIB -o "$test_name"
+            ./"$test_name"
+            echo "::endgroup::"
+          done
+
+  memory-safety:
+    name: AddressSanitizer, UBSan and Valgrind
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v4
+
+      - name: Build and run everything with ASan and UBSan
+        env:
+          SAN: -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g
+        run: |
+          LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
+          gcc $CFLAGS $SAN main.c $LIB -o traffic_management_san
+          printf '2\n3\n' | ./traffic_management_san
+          for test_source in tests/test_*.c; do
+            test_name=$(basename "$test_source" .c)
+            gcc $CFLAGS $SAN "$test_source" $LIB -o "${test_name}_san"
+            ./"${test_name}_san"
+          done
+
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      - name: Check for leaks and invalid memory use with Valgrind
+        run: |
+          LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
+          gcc $CFLAGS -g main.c $LIB -o traffic_management_vg
+          printf '2\n3\n' | valgrind --leak-check=full --error-exitcode=1 ./traffic_management_vg
