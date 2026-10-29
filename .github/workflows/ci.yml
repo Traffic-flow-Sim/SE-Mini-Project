@@ -40,7 +40,29 @@ jobs:
         run: gcc $CFLAGS traffic_simulation.c queue.c -o traffic_simulation
 
       - name: Run application smoke test
-        run: printf '1\n1\n' | ./traffic_management
+        run: |
+          printf '1\n1\n' | ./traffic_management > run.log
+          tail -n 12 run.log
+          grep -q "Integrity check       : OK" run.log
+          grep -q "Maximum queue length" run.log
+
+      - name: Application rejects bad configuration input
+        run: |
+          # letters, zero, negative, above the maximum, overflow, then a valid 2 and 1
+          printf 'abc\n0\n-5\n101\n99999999999999999999\n2\n1\n' | ./traffic_management > bad_input.log
+          grep -q "Error: Enter a valid whole number." bad_input.log
+          grep -q "Error: Enter a value between 1 and 100." bad_input.log
+          grep -q "Traffic density: 2 vehicles per direction" bad_input.log
+          grep -q "Integrity check       : OK" bad_input.log
+          # a 200-character line must be rejected, not split into later answers
+          printf '%0200d\n2\n1\n' 5 | ./traffic_management > long_input.log
+          grep -q "Error: Input is too long." long_input.log
+          grep -q "Traffic density: 2 vehicles per direction" long_input.log
+          # input that ends early must fail cleanly instead of hanging
+          if printf '1\n' | ./traffic_management > /dev/null 2>&1; then
+            echo "expected a failure when the input ends early"
+            exit 1
+          fi
 
       - name: Run basic simulation smoke test
         run: ./traffic_simulation
