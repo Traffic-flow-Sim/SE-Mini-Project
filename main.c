@@ -1,13 +1,18 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 #include "input.h"
 #include "queue.h"
+#include "simulation.h"
+#include "stats.h"
 
-#define NUM_DIRECTIONS 4
-#define MAX_SIGNAL_DURATION 120
+#define NUM_DIRECTIONS SIM_MAX_DIRECTIONS
+#define MAX_SIGNAL_DURATION SIM_MAX_GREEN_TICKS
+
+/* Settings not asked for on the console. One tick is one simulated second. */
+#define ARRIVAL_INTERVAL 5   /* after the initial vehicles, one per direction every 5 ticks */
+#define MIN_RUN_TICKS 60
 
 enum Direction {
     NORTH = 0,
@@ -33,63 +38,44 @@ static int getValidatedInput(const char *prompt, int min, int max)
     return value;
 }
 
-static void displayQueues(
-    const VehicleQueue queues[],
-    int greenDirection)
+/* Called by the simulation after every tick: signal and queue length per direction. */
+static void displayTick(const SimTickInfo *info, void *user)
 {
     int i;
+    int passed = 0;
+    int dropped = 0;
 
-    printf("\n========== TRAFFIC STATUS ==========\n");
+    (void)user;
 
-    for (i = 0; i < NUM_DIRECTIONS; i++) {
-        printf("%-5s | Signal: %-5s | Queue length: %d\n",
+    printf("Tick %03u", info->tick);
+
+    for (i = 0; i < info->num_directions; i++) {
+        printf(" | %-5s %-6s q=%-3d",
                directionNames[i],
-               (i == greenDirection) ? "GREEN" : "RED",
-               queues[i].size);
+               sim_signal_name(info->signal[i]),
+               info->queue_length[i]);
+        passed += info->departed[i];
+        dropped += info->dropped[i];
     }
 
-    printf("====================================\n");
+    printf(" || passed %d, dropped %d\n", passed, dropped);
 }
 
-static void processGreenDirection(
-    VehicleQueue queues[],
-    int greenDirection)
+/* Long enough for every direction to get at least two green phases. */
+static int chooseRunLength(int greenTicks, int yellowTicks)
 {
-    Vehicle vehicle;
+    int twoCycles = 2 * NUM_DIRECTIONS * (greenTicks + yellowTicks);
 
-    printf("\nGreen signal: %s\n",
-           directionNames[greenDirection]);
-
-    if (dequeue(&queues[greenDirection], &vehicle)) {
-        printf("Vehicle %u passed from %s.\n",
-               vehicle.id, directionNames[greenDirection]);
-    } else {
-        printf("No vehicles waiting in %s.\n",
-               directionNames[greenDirection]);
-    }
-}
-
-static void runSignalPhase(int duration)
-{
-    time_t startTime = time(NULL);
-
-    printf("Green signal remains active for %d seconds.\n", duration);
-
-    while (time(NULL) - startTime < duration) {
-        /* Wait for the configured signal duration. */
-    }
-
-    printf("Green signal phase completed.\n");
+    return twoCycles > MIN_RUN_TICKS ? twoCycles : MIN_RUN_TICKS;
 }
 
 int main(void)
 {
-    VehicleQueue queues[NUM_DIRECTIONS];
-    unsigned int nextVehicleId = 1;
+    SimConfig config;
+    SimStats stats;
+    char error[96];
     int density;
     int signalDuration;
-    int i;
-    int j;
 
     printf("=== TRAFFIC MANAGEMENT CONFIGURATION ===\n");
 
@@ -101,39 +87,35 @@ int main(void)
         "Enter green signal duration (1-120 seconds): ",
         1, MAX_SIGNAL_DURATION);
 
+    sim_config_default(&config);
+    config.num_directions = NUM_DIRECTIONS;
+    config.initial_vehicles = density;
+    config.arrival_interval = ARRIVAL_INTERVAL;
+    config.green_ticks = signalDuration;
+    config.total_ticks = chooseRunLength(signalDuration, config.yellow_ticks);
+
+    if (!sim_config_validate(&config, error, sizeof error)) {
+        fprintf(stderr, "Error: %s.\n", error);
+        return EXIT_FAILURE;
+    }
+
     printf("\nConfiguration saved for this run.\n");
     printf("Traffic density: %d vehicles per direction\n", density);
     printf("Green signal duration: %d seconds per direction\n",
            signalDuration);
+    printf("Further arrivals: one vehicle per direction every %d seconds\n",
+           ARRIVAL_INTERVAL);
+    printf("Simulated time: %d seconds\n", config.total_ticks);
 
-    for (i = 0; i < NUM_DIRECTIONS; i++) {
-        queue_init(&queues[i]);
+    printf("\nTRAFFIC MANAGEMENT SIMULATION\n\n");
+
+    if (!sim_run(&config, &stats, displayTick, NULL)) {
+        fprintf(stderr, "Error: Simulation could not run.\n");
+        return EXIT_FAILURE;
     }
 
-    for (i = 0; i < NUM_DIRECTIONS; i++) {
-        for (j = 0; j < density; j++) {
-            Vehicle arrivingVehicle = { nextVehicleId++, 0 };
+    printf("\n");
+    report_print(stdout, &stats);
 
-            if (!enqueue(&queues[i], arrivingVehicle)) {
-                fprintf(stderr,
-                        "Error: Queue full for direction %s.\n",
-                        directionNames[i]);
-                return EXIT_FAILURE;
-            }
-        }
-    }
-
-    printf("\nTRAFFIC MANAGEMENT SIMULATION\n");
-
-    for (i = 0; i < NUM_DIRECTIONS; i++) {
-        printf("\n--- SIGNAL PHASE %d (%d seconds) ---\n",
-               i + 1, signalDuration);
-
-        displayQueues(queues, i);
-        runSignalPhase(signalDuration);
-        processGreenDirection(queues, i);
-        displayQueues(queues, i);
-    }
-
-    return EXIT_SUCCESS;
+    return stats_is_conserved(&stats) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
