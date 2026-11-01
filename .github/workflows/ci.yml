@@ -41,25 +41,46 @@ jobs:
 
       - name: Run application smoke test
         run: |
-          printf '1\n1\n' | ./traffic_management > run.log
+          # answers: initial vehicles, green duration, traffic density
+          printf '1\n1\n20\n' | ./traffic_management > run.log
           tail -n 12 run.log
           grep -q "Integrity check       : OK" run.log
           grep -q "Maximum queue length" run.log
 
+      - name: Traffic density controls how many vehicles are generated
+        run: |
+          # 4 directions x 2 initial vehicles, a 60 second run.
+          # Density 0   -> only the 8 initial vehicles.
+          # Density 50  -> 8 + 4 x floor(60 x 50 / 100)  = 128.
+          # Density 100 -> 8 + 4 x floor(60 x 100 / 100) = 248.
+          printf '2\n1\n0\n' | ./traffic_management > density_0.log
+          grep -q "Vehicles generated    : 8$" density_0.log
+          printf '2\n1\n50\n' | ./traffic_management > density_50.log
+          grep -q "Vehicles generated    : 128$" density_50.log
+          printf '2\n1\n100\n' | ./traffic_management > density_100.log
+          grep -q "Vehicles generated    : 248$" density_100.log
+          grep -q "Integrity check       : OK" density_100.log
+
       - name: Application rejects bad configuration input
         run: |
-          # letters, zero, negative, above the maximum, overflow, then a valid 2 and 1
-          printf 'abc\n0\n-5\n101\n99999999999999999999\n2\n1\n' | ./traffic_management > bad_input.log
+          # letters, zero, negative, above the maximum, overflow, then valid 2, 1 and 20
+          printf 'abc\n0\n-5\n101\n99999999999999999999\n2\n1\n20\n' | ./traffic_management > bad_input.log
           grep -q "Error: Enter a valid whole number." bad_input.log
           grep -q "Error: Enter a value between 1 and 100." bad_input.log
-          grep -q "Traffic density: 2 vehicles per direction" bad_input.log
+          grep -q "Initial vehicles: 2 per direction" bad_input.log
           grep -q "Integrity check       : OK" bad_input.log
+          # the density prompt accepts 0 but rejects negatives, letters and values above 100
+          printf '2\n1\n-1\n101\nxyz\n20\n' | ./traffic_management > bad_density.log
+          grep -q "Error: Enter a value between 0 and 100." bad_density.log
+          grep -q "Error: Enter a valid whole number." bad_density.log
+          grep -q "Traffic density: 20 vehicles per direction per 100 seconds" bad_density.log
+          grep -q "Integrity check       : OK" bad_density.log
           # a 200-character line must be rejected, not split into later answers
-          printf '%0200d\n2\n1\n' 5 | ./traffic_management > long_input.log
+          printf '%0200d\n2\n1\n20\n' 5 | ./traffic_management > long_input.log
           grep -q "Error: Input is too long." long_input.log
-          grep -q "Traffic density: 2 vehicles per direction" long_input.log
+          grep -q "Initial vehicles: 2 per direction" long_input.log
           # input that ends early must fail cleanly instead of hanging
-          if printf '1\n' | ./traffic_management > /dev/null 2>&1; then
+          if printf '1\n1\n' | ./traffic_management > /dev/null 2>&1; then
             echo "expected a failure when the input ends early"
             exit 1
           fi
@@ -93,7 +114,8 @@ jobs:
         run: |
           LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
           gcc $CFLAGS $SAN main.c $LIB -o traffic_management_san
-          printf '2\n3\n' | ./traffic_management_san
+          printf '2\n3\n20\n' | ./traffic_management_san
+          printf '2\n3\n100\n' | ./traffic_management_san > /dev/null
           for test_source in tests/test_*.c; do
             test_name=$(basename "$test_source" .c)
             gcc $CFLAGS $SAN "$test_source" $LIB -o "${test_name}_san"
@@ -109,4 +131,4 @@ jobs:
         run: |
           LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
           gcc $CFLAGS -g main.c $LIB -o traffic_management_vg
-          printf '2\n3\n' | valgrind --leak-check=full --error-exitcode=1 ./traffic_management_vg
+          printf '2\n3\n20\n' | valgrind --leak-check=full --error-exitcode=1 ./traffic_management_vg

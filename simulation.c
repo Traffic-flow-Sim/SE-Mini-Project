@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "vehicle_generator.h"
+
 void sim_config_default(SimConfig *config)
 {
     if (config == NULL) {
@@ -11,11 +13,24 @@ void sim_config_default(SimConfig *config)
 
     config->num_directions = SIM_MAX_DIRECTIONS;
     config->initial_vehicles = 10;
-    config->arrival_interval = 5;
     config->green_ticks = 5;
     config->yellow_ticks = 1;
     config->discharge_per_tick = 1;
     config->total_ticks = 120;
+    sim_config_set_traffic_density(config, 20);   /* one vehicle every 5 ticks per direction */
+}
+
+void sim_config_set_traffic_density(SimConfig *config, int vehicles_per_100_ticks)
+{
+    int d;
+
+    if (config == NULL) {
+        return;
+    }
+
+    for (d = 0; d < SIM_MAX_DIRECTIONS; d++) {
+        config->arrival_rate[d] = vehicles_per_100_ticks;
+    }
 }
 
 static int in_range(const char *name, int value, int min, int max,
@@ -33,6 +48,20 @@ static int in_range(const char *name, int value, int min, int max,
     return 0;
 }
 
+static int densities_in_range(const SimConfig *config, char *error, size_t error_size)
+{
+    int d;
+
+    for (d = 0; d < config->num_directions; d++) {
+        if (!in_range("traffic density", config->arrival_rate[d],
+                      0, SIM_MAX_ARRIVAL_RATE, error, error_size)) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 int sim_config_validate(const SimConfig *config, char *error, size_t error_size)
 {
     if (error != NULL && error_size > 0) {
@@ -46,12 +75,12 @@ int sim_config_validate(const SimConfig *config, char *error, size_t error_size)
         return 0;
     }
 
+    /* num_directions is checked first: the density check below relies on it. */
     return in_range("number of directions", config->num_directions,
                     SIM_MIN_DIRECTIONS, SIM_MAX_DIRECTIONS, error, error_size)
         && in_range("initial vehicles", config->initial_vehicles,
                     0, QUEUE_CAPACITY, error, error_size)
-        && in_range("arrival interval", config->arrival_interval,
-                    0, SIM_MAX_ARRIVAL_INTERVAL, error, error_size)
+        && densities_in_range(config, error, error_size)
         && in_range("green duration", config->green_ticks,
                     SIM_MIN_GREEN_TICKS, SIM_MAX_GREEN_TICKS, error, error_size)
         && in_range("yellow duration", config->yellow_ticks,
@@ -96,31 +125,36 @@ const char *sim_signal_name(SimSignal signal)
     }
 }
 
-/* Creates the next vehicle and queues it; returns 0 if the queue dropped it. */
-static int vehicle_arrives(VehicleQueue *queue, unsigned int *next_id,
-                           unsigned int tick, SimStats *stats)
+/*
+ * Puts a freshly generated vehicle into the queue of its own direction and
+ * records it. The queue is chosen by the caller from the direction the vehicle
+ * was generated for, so vehicles can never end up in another direction's queue.
+ */
+static void admit_vehicle(VehicleQueue *queue, Vehicle vehicle, int direction,
+                          SimStats *stats, SimTickInfo *info)
 {
-    Vehicle vehicle;
-
-    vehicle.id = (*next_id)++;
-    vehicle.arrival_tick = tick;
     stats_record_generated(stats);
+    info->generated[direction]++;
 
-    return enqueue(queue, vehicle);
+    if (!enqueue(queue, vehicle)) {
+        info->dropped[direction]++;
+    }
 }
 
 int sim_run(const SimConfig *config, SimStats *stats,
             SimTickCallback callback, void *user)
 {
     VehicleQueue queues[SIM_MAX_DIRECTIONS];
+    VehicleGenerator generator;
     SimTickInfo info;
-    unsigned int next_id = 1;
+    Vehicle vehicle;
     unsigned int tick;
     int d;
     int k;
 
     if (config == NULL || stats == NULL ||
-        !sim_config_validate(config, NULL, 0)) {
+        !sim_config_validate(config, NULL, 0) ||
+        !vg_init(&generator, config->num_directions, config->arrival_rate)) {
         return 0;
     }
 
@@ -134,21 +168,19 @@ int sim_run(const SimConfig *config, SimStats *stats,
         info.tick = tick;
         info.num_directions = config->num_directions;
 
-        /* 1. Arrivals: the initial vehicles at tick 0, then one per direction per interval. */
+        /* 1. Arrivals. The initial vehicles are placed at tick 0, then every
+         *    direction receives vehicles at its own configured density. */
         if (tick == 0) {
             for (d = 0; d < config->num_directions; d++) {
                 for (k = 0; k < config->initial_vehicles; k++) {
-                    if (!vehicle_arrives(&queues[d], &next_id, tick, stats)) {
-                        info.dropped[d]++;
-                    }
+                    admit_vehicle(&queues[d], vg_new_vehicle(&generator, tick),
+                                  d, stats, &info);
                 }
             }
-        } else if (config->arrival_interval > 0 &&
-                   tick % (unsigned int)config->arrival_interval == 0) {
-            for (d = 0; d < config->num_directions; d++) {
-                if (!vehicle_arrives(&queues[d], &next_id, tick, stats)) {
-                    info.dropped[d]++;
-                }
+        }
+        for (d = 0; d < config->num_directions; d++) {
+            if (vg_arrival(&generator, d, tick, &vehicle)) {
+                admit_vehicle(&queues[d], vehicle, d, stats, &info);
             }
         }
 
@@ -163,12 +195,11 @@ int sim_run(const SimConfig *config, SimStats *stats,
 
             if (info.signal[d] == SIM_SIGNAL_GREEN) {
                 for (k = 0; k < config->discharge_per_tick; k++) {
-                    Vehicle vehicle;
-
                     if (!dequeue(&queues[d], &vehicle)) {
                         break;
                     }
                     stats_record_departure(stats, tick - vehicle.arrival_tick);
+                    info.departed_id[d][info.departed[d]] = vehicle.id;
                     info.departed[d]++;
                 }
             }

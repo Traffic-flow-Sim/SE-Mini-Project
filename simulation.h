@@ -5,10 +5,11 @@
 
 #include "queue.h"
 #include "stats.h"
+#include "vehicle_generator.h"
 
 #define SIM_MIN_DIRECTIONS 2
-#define SIM_MAX_DIRECTIONS 4
-#define SIM_MAX_ARRIVAL_INTERVAL 1000
+#define SIM_MAX_DIRECTIONS VG_MAX_DIRECTIONS
+#define SIM_MAX_ARRIVAL_RATE VG_MAX_RATE
 #define SIM_MIN_GREEN_TICKS 1
 #define SIM_MAX_GREEN_TICKS 120
 #define SIM_MIN_YELLOW_TICKS 1
@@ -26,14 +27,21 @@ typedef enum {
 
 /*
  * Time is measured in logical ticks (1 tick = 1 simulated second); ticks are
- * numbered from 0. Each direction has its own bounded queue. Directions take
- * turns: one is GREEN for green_ticks, then YELLOW for yellow_ticks, while all
- * others are RED.
+ * numbered from 0. Directions are numbered 0..3 (North, South, East, West) and
+ * each has its own bounded queue. Directions take turns: one is GREEN for
+ * green_ticks, then YELLOW for yellow_ticks, while all others are RED.
+ *
+ * Every tick, vehicles arrive first and then the green direction releases
+ * vehicles. Arrivals come from the VehicleGenerator: at tick 0 the initial
+ * vehicles are placed in every queue, and from then on each direction receives
+ * vehicles at its own traffic density (arrival_rate).
  */
 typedef struct {
     int num_directions;      /* SIM_MIN_DIRECTIONS .. SIM_MAX_DIRECTIONS */
     int initial_vehicles;    /* waiting in every direction at tick 0 (0 .. QUEUE_CAPACITY) */
-    int arrival_interval;    /* afterwards each direction gets one vehicle every N ticks; 0 = none */
+    int arrival_rate[SIM_MAX_DIRECTIONS]; /* traffic density: new vehicles per 100 ticks, per
+                                             direction, 0 .. SIM_MAX_ARRIVAL_RATE.
+                                             Only the first num_directions entries are used. */
     int green_ticks;
     int yellow_ticks;
     int discharge_per_tick;  /* vehicles that can leave per green tick */
@@ -45,14 +53,21 @@ typedef struct {
     unsigned int tick;
     int num_directions;
     SimSignal signal[SIM_MAX_DIRECTIONS];
+    int generated[SIM_MAX_DIRECTIONS];     /* vehicles created for this direction this tick
+                                              (including any dropped because the queue was full) */
     int queue_length[SIM_MAX_DIRECTIONS];  /* at the end of the tick */
     int departed[SIM_MAX_DIRECTIONS];      /* vehicles that passed this tick */
+    unsigned int departed_id[SIM_MAX_DIRECTIONS][SIM_MAX_DISCHARGE]; /* their IDs, oldest first;
+                                              only the first departed[d] entries are meaningful */
     int dropped[SIM_MAX_DIRECTIONS];       /* arrivals rejected this tick (queue full) */
 } SimTickInfo;
 
 typedef void (*SimTickCallback)(const SimTickInfo *info, void *user);
 
 void sim_config_default(SimConfig *config);
+
+/* Sets the same traffic density (vehicles per 100 ticks) for every direction. */
+void sim_config_set_traffic_density(SimConfig *config, int vehicles_per_100_ticks);
 
 /*
  * Returns 1 if every field is in range. Otherwise returns 0 and, when error is
