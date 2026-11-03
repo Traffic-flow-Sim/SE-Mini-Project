@@ -53,6 +53,7 @@ typedef struct {
     unsigned int tick;
     int num_directions;
     SimSignal signal[SIM_MAX_DIRECTIONS];
+    int remaining_duration[SIM_MAX_DIRECTIONS]; /* remaining ticks in the current signal state */
     int generated[SIM_MAX_DIRECTIONS];     /* vehicles created for this direction this tick
                                               (including any dropped because the queue was full) */
     int queue_length[SIM_MAX_DIRECTIONS];  /* at the end of the tick */
@@ -77,6 +78,10 @@ int sim_config_validate(const SimConfig *config, char *error, size_t error_size)
 
 /* Signal shown to one direction at a tick (RED for any invalid argument). */
 SimSignal sim_signal_at(const SimConfig *config, int direction, unsigned int tick);
+
+/* Remaining ticks in that direction's current signal state at the given tick. */
+int sim_signal_remaining_at(const SimConfig *config, int direction, unsigned int tick);
+
 const char *sim_signal_name(SimSignal signal);
 
 /*

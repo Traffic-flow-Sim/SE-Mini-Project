@@ -48,16 +48,19 @@ static void displayTick(const SimTickInfo *info, void *user)
     printf("Tick %03u", info->tick);
 
     for (i = 0; i < info->num_directions; i++) {
-        printf(" | %-5s %-6s q=%-3d",
+        printf(" | %-5s %-6s rem=%2ds q=%-3d",
                directionNames[i],
                sim_signal_name(info->signal[i]),
+               info->remaining_duration[i],
                info->queue_length[i]);
+
         arrived += info->generated[i];
         passed += info->departed[i];
         dropped += info->dropped[i];
     }
 
-    printf(" || arrived %d, passed %d, dropped %d\n", arrived, passed, dropped);
+    printf(" || arrived %d, passed %d, dropped %d\n",
+           arrived, passed, dropped);
 }
 
 /* Long enough for every direction to get at least two green phases. */
@@ -96,6 +99,7 @@ int main(void)
     config.initial_vehicles = initialVehicles;
     config.green_ticks = signalDuration;
     config.total_ticks = chooseRunLength(signalDuration, config.yellow_ticks);
+
     sim_config_set_traffic_density(&config, trafficDensity);
 
     if (!sim_config_validate(&config, error, sizeof error)) {

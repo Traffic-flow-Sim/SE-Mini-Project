@@ -185,6 +185,35 @@ static void test_signal_invalid_arguments_are_red(void)
     CHECK(strcmp(sim_signal_name(SIM_SIGNAL_RED), "RED") == 0);
 }
 
+
+static void test_signal_remaining_duration(void)
+{
+    SimConfig c = make_config(4, 0, 0, 5, 1, 1, 30);
+
+    /* North: Green for 5 ticks, then Yellow for 1 tick. */
+    CHECK(sim_signal_remaining_at(&c, 0, 0) == 5);
+    CHECK(sim_signal_remaining_at(&c, 0, 4) == 1);
+    CHECK(sim_signal_remaining_at(&c, 0, 5) == 1);
+
+    /* South becomes Green at tick 6. */
+    CHECK(sim_signal_remaining_at(&c, 1, 0) == 6);
+    CHECK(sim_signal_remaining_at(&c, 1, 5) == 1);
+    CHECK(sim_signal_remaining_at(&c, 1, 6) == 5);
+    CHECK(sim_signal_remaining_at(&c, 1, 11) == 1);
+
+    /* East and West wait for their respective turns. */
+    CHECK(sim_signal_remaining_at(&c, 2, 0) == 12);
+    CHECK(sim_signal_remaining_at(&c, 3, 0) == 18);
+
+    /* Cycle repeats after 24 ticks. */
+    CHECK(sim_signal_remaining_at(&c, 0, 24) == 5);
+
+    /* Invalid arguments must be handled safely. */
+    CHECK(sim_signal_remaining_at(NULL, 0, 0) == 0);
+    CHECK(sim_signal_remaining_at(&c, -1, 0) == 0);
+    CHECK(sim_signal_remaining_at(&c, 4, 0) == 0);
+}
+
 /* ---- hand-computed scenarios ---- */
 
 static void test_hand_computed_initial_vehicles_only(void)
@@ -763,6 +792,7 @@ int main(void)
     TEST_RUN(test_signal_sequence_for_two_directions);
     TEST_RUN(test_one_direction_active_at_a_time_and_all_served);
     TEST_RUN(test_signal_invalid_arguments_are_red);
+    TEST_RUN(test_signal_remaining_duration);
     TEST_RUN(test_hand_computed_initial_vehicles_only);
     TEST_RUN(test_hand_computed_with_ongoing_arrivals);
     TEST_RUN(test_hand_computed_multiple_departures_per_green_tick);

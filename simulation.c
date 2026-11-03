@@ -1,3 +1,4 @@
+
 #include "simulation.h"
 
 #include <stdio.h>
@@ -75,7 +76,8 @@ int sim_config_validate(const SimConfig *config, char *error, size_t error_size)
         return 0;
     }
 
-    /* num_directions is checked first: the density check below relies on it. */
+/* num_directions is checked first: the density check below relies on it. */
+
     return in_range("number of directions", config->num_directions,
                     SIM_MIN_DIRECTIONS, SIM_MAX_DIRECTIONS, error, error_size)
         && in_range("initial vehicles", config->initial_vehicles,
@@ -98,8 +100,15 @@ SimSignal sim_signal_at(const SimConfig *config, int direction, unsigned int tic
     int active;
     int within;
 
-    if (config == NULL || direction < 0 || direction >= config->num_directions ||
-        config->green_ticks < 1 || config->yellow_ticks < 1) {
+    if (config == NULL ||
+        direction < 0 ||
+        direction >= config->num_directions ||
+        config->num_directions < SIM_MIN_DIRECTIONS ||
+        config->num_directions > SIM_MAX_DIRECTIONS ||
+        config->green_ticks < SIM_MIN_GREEN_TICKS ||
+        config->green_ticks > SIM_MAX_GREEN_TICKS ||
+        config->yellow_ticks < SIM_MIN_YELLOW_TICKS ||
+        config->yellow_ticks > SIM_MAX_YELLOW_TICKS) {
         return SIM_SIGNAL_RED;
     }
 
@@ -115,6 +124,59 @@ SimSignal sim_signal_at(const SimConfig *config, int direction, unsigned int tic
     return within < config->green_ticks ? SIM_SIGNAL_GREEN : SIM_SIGNAL_YELLOW;
 }
 
+/*
+ * Returns the number of ticks remaining in the current signal state.
+ *
+ * GREEN: remaining green ticks.
+ * YELLOW: remaining yellow ticks.
+ * RED: ticks until this direction receives GREEN.
+ */
+int sim_signal_remaining_at(const SimConfig *config, int direction, unsigned int tick)
+{
+    int phase_length;
+    int cycle_length;
+    int position;
+    int active_direction;
+    int within_phase;
+    int direction_start;
+    int remaining;
+
+    if (config == NULL ||
+        direction < 0 ||
+        direction >= config->num_directions ||
+        config->num_directions < SIM_MIN_DIRECTIONS ||
+        config->num_directions > SIM_MAX_DIRECTIONS ||
+        config->green_ticks < SIM_MIN_GREEN_TICKS ||
+        config->green_ticks > SIM_MAX_GREEN_TICKS ||
+        config->yellow_ticks < SIM_MIN_YELLOW_TICKS ||
+        config->yellow_ticks > SIM_MAX_YELLOW_TICKS) {
+        return 0;
+    }
+
+    phase_length = config->green_ticks + config->yellow_ticks;
+    cycle_length = phase_length * config->num_directions;
+
+    position = (int)(tick % (unsigned int)cycle_length);
+    active_direction = position / phase_length;
+    within_phase = position % phase_length;
+
+    if (direction == active_direction) {
+        if (within_phase < config->green_ticks) {
+            remaining = config->green_ticks - within_phase;
+        } else {
+            remaining = config->yellow_ticks -
+                        (within_phase - config->green_ticks);
+        }
+    } else {
+        direction_start = direction * phase_length;
+
+        remaining = (direction_start - position + cycle_length)
+                    % cycle_length;
+    }
+
+    return remaining;
+}
+
 const char *sim_signal_name(SimSignal signal)
 {
     switch (signal) {
@@ -125,7 +187,7 @@ const char *sim_signal_name(SimSignal signal)
     }
 }
 
-/*
+ /*
  * Puts a freshly generated vehicle into the queue of its own direction and
  * records it. The queue is chosen by the caller from the direction the vehicle
  * was generated for, so vehicles can never end up in another direction's queue.
@@ -159,6 +221,7 @@ int sim_run(const SimConfig *config, SimStats *stats,
     }
 
     stats_init(stats);
+
     for (d = 0; d < config->num_directions; d++) {
         queue_init(&queues[d]);
     }
@@ -169,7 +232,7 @@ int sim_run(const SimConfig *config, SimStats *stats,
         info.num_directions = config->num_directions;
 
         /* 1. Arrivals. The initial vehicles are placed at tick 0, then every
-         *    direction receives vehicles at its own configured density. */
+ *    direction receives vehicles at its own configured density. */
         if (tick == 0) {
             for (d = 0; d < config->num_directions; d++) {
                 for (k = 0; k < config->initial_vehicles; k++) {
@@ -178,6 +241,7 @@ int sim_run(const SimConfig *config, SimStats *stats,
                 }
             }
         }
+
         for (d = 0; d < config->num_directions; d++) {
             if (vg_arrival(&generator, d, tick, &vehicle)) {
                 admit_vehicle(&queues[d], vehicle, d, stats, &info);
@@ -193,11 +257,15 @@ int sim_run(const SimConfig *config, SimStats *stats,
         for (d = 0; d < config->num_directions; d++) {
             info.signal[d] = sim_signal_at(config, d, tick);
 
+            info.remaining_duration[d] =
+                sim_signal_remaining_at(config, d, tick);
+
             if (info.signal[d] == SIM_SIGNAL_GREEN) {
                 for (k = 0; k < config->discharge_per_tick; k++) {
                     if (!dequeue(&queues[d], &vehicle)) {
                         break;
                     }
+
                     stats_record_departure(stats, tick - vehicle.arrival_tick);
                     info.departed_id[d][info.departed[d]] = vehicle.id;
                     info.departed[d]++;
@@ -212,9 +280,10 @@ int sim_run(const SimConfig *config, SimStats *stats,
         }
     }
 
-    /* Dropped and remaining come from the queues themselves, so the integrity
-     * check in stats_is_conserved compares independent counters. */
+/* Dropped and remaining come from the queues themselves, so the integrity
+ * check in stats_is_conserved compares independent counters. */
     stats->ticks = (unsigned int)config->total_ticks;
+
     for (d = 0; d < config->num_directions; d++) {
         stats->dropped += queues[d].dropped;
         stats->remaining += (unsigned long)queues[d].size;
