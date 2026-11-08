@@ -47,6 +47,15 @@ jobs:
           grep -q "Integrity check       : OK" run.log
           grep -q "Maximum queue length" run.log
 
+      - name: Exercise simulation console controls
+        run: |
+          printf '1\n1\n20\nstart\nresume\nstep\npause\nstep\nresume\nstep\nstop\n' | ./traffic_management > controls.log
+          grep -q "resume is only valid while paused" controls.log
+          grep -q "Paused at tick 1" controls.log
+          grep -q "Resumed at tick 1" controls.log
+          grep -q "Stopped safely at tick 2" controls.log
+          grep -q "Integrity check       : OK" controls.log
+
       - name: Traffic density controls how many vehicles are generated
         run: |
           # 4 directions x 2 initial vehicles, a 60 second run.
