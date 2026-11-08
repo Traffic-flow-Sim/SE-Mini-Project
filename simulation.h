@@ -65,6 +65,26 @@ typedef struct {
 
 typedef void (*SimTickCallback)(const SimTickInfo *info, void *user);
 
+typedef enum {
+    SIM_SESSION_IDLE = 0,
+    SIM_SESSION_RUNNING,
+    SIM_SESSION_PAUSED,
+    SIM_SESSION_STOPPED,
+    SIM_SESSION_COMPLETED
+} SimSessionState;
+
+/* Mutable state for a controllable simulation. Zero-initialize before first use. */
+typedef struct {
+    SimConfig config;
+    SimStats *stats;
+    SimTickCallback callback;
+    void *user;
+    VehicleQueue queues[SIM_MAX_DIRECTIONS];
+    VehicleGenerator generator;
+    unsigned int next_tick;
+    SimSessionState state;
+} SimSession;
+
 void sim_config_default(SimConfig *config);
 
 /* Sets the same traffic density (vehicles per 100 ticks) for every direction. */
@@ -75,6 +95,15 @@ void sim_config_set_traffic_density(SimConfig *config, int vehicles_per_100_tick
  * not NULL, writes a short message naming the offending field.
  */
 int sim_config_validate(const SimConfig *config, char *error, size_t error_size);
+
+/* Start only an IDLE, STOPPED, or COMPLETED session; active sessions are preserved. */
+int sim_session_start(SimSession *session, const SimConfig *config,
+                      SimStats *stats, SimTickCallback callback, void *user);
+int sim_session_pause(SimSession *session);
+int sim_session_resume(SimSession *session);
+int sim_session_stop(SimSession *session);
+/* Advances exactly one tick while RUNNING; returns 1 when a tick was run. */
+int sim_session_step(SimSession *session);
 
 /* Signal shown to one direction at a tick (RED for any invalid argument). */
 SimSignal sim_signal_at(const SimConfig *config, int direction, unsigned int tick);

@@ -1,4 +1,3 @@
-
 #include "simulation.h"
 
 #include <stdio.h>
@@ -76,8 +75,7 @@ int sim_config_validate(const SimConfig *config, char *error, size_t error_size)
         return 0;
     }
 
-/* num_directions is checked first: the density check below relies on it. */
-
+    /* num_directions is checked first: the density check below relies on it. */
     return in_range("number of directions", config->num_directions,
                     SIM_MIN_DIRECTIONS, SIM_MAX_DIRECTIONS, error, error_size)
         && in_range("initial vehicles", config->initial_vehicles,
@@ -100,9 +98,7 @@ SimSignal sim_signal_at(const SimConfig *config, int direction, unsigned int tic
     int active;
     int within;
 
-    if (config == NULL ||
-        direction < 0 ||
-        direction >= config->num_directions ||
+    if (config == NULL || direction < 0 || direction >= config->num_directions ||
         config->num_directions < SIM_MIN_DIRECTIONS ||
         config->num_directions > SIM_MAX_DIRECTIONS ||
         config->green_ticks < SIM_MIN_GREEN_TICKS ||
@@ -124,13 +120,7 @@ SimSignal sim_signal_at(const SimConfig *config, int direction, unsigned int tic
     return within < config->green_ticks ? SIM_SIGNAL_GREEN : SIM_SIGNAL_YELLOW;
 }
 
-/*
- * Returns the number of ticks remaining in the current signal state.
- *
- * GREEN: remaining green ticks.
- * YELLOW: remaining yellow ticks.
- * RED: ticks until this direction receives GREEN.
- */
+/* Returns the ticks left in this signal state, or until this direction is green. */
 int sim_signal_remaining_at(const SimConfig *config, int direction, unsigned int tick)
 {
     int phase_length;
@@ -139,11 +129,8 @@ int sim_signal_remaining_at(const SimConfig *config, int direction, unsigned int
     int active_direction;
     int within_phase;
     int direction_start;
-    int remaining;
 
-    if (config == NULL ||
-        direction < 0 ||
-        direction >= config->num_directions ||
+    if (config == NULL || direction < 0 || direction >= config->num_directions ||
         config->num_directions < SIM_MIN_DIRECTIONS ||
         config->num_directions > SIM_MAX_DIRECTIONS ||
         config->green_ticks < SIM_MIN_GREEN_TICKS ||
@@ -155,26 +142,18 @@ int sim_signal_remaining_at(const SimConfig *config, int direction, unsigned int
 
     phase_length = config->green_ticks + config->yellow_ticks;
     cycle_length = phase_length * config->num_directions;
-
     position = (int)(tick % (unsigned int)cycle_length);
     active_direction = position / phase_length;
     within_phase = position % phase_length;
 
     if (direction == active_direction) {
-        if (within_phase < config->green_ticks) {
-            remaining = config->green_ticks - within_phase;
-        } else {
-            remaining = config->yellow_ticks -
-                        (within_phase - config->green_ticks);
-        }
-    } else {
-        direction_start = direction * phase_length;
-
-        remaining = (direction_start - position + cycle_length)
-                    % cycle_length;
+        return within_phase < config->green_ticks
+            ? config->green_ticks - within_phase
+            : config->yellow_ticks - (within_phase - config->green_ticks);
     }
 
-    return remaining;
+    direction_start = direction * phase_length;
+    return (direction_start - position + cycle_length) % cycle_length;
 }
 
 const char *sim_signal_name(SimSignal signal)
@@ -187,7 +166,7 @@ const char *sim_signal_name(SimSignal signal)
     }
 }
 
- /*
+/*
  * Puts a freshly generated vehicle into the queue of its own direction and
  * records it. The queue is chosen by the caller from the direction the vehicle
  * was generated for, so vehicles can never end up in another direction's queue.
@@ -203,91 +182,152 @@ static void admit_vehicle(VehicleQueue *queue, Vehicle vehicle, int direction,
     }
 }
 
-int sim_run(const SimConfig *config, SimStats *stats,
-            SimTickCallback callback, void *user)
+static void session_finish(SimSession *session, SimSessionState state)
 {
-    VehicleQueue queues[SIM_MAX_DIRECTIONS];
-    VehicleGenerator generator;
+    int d;
+
+    if (session->state == SIM_SESSION_STOPPED ||
+        session->state == SIM_SESSION_COMPLETED) {
+        return;
+    }
+    for (d = 0; d < session->config.num_directions; d++) {
+        session->stats->dropped += session->queues[d].dropped;
+        session->stats->remaining += (unsigned long)session->queues[d].size;
+    }
+    session->stats->ticks = session->next_tick;
+    session->state = state;
+}
+
+int sim_session_start(SimSession *session, const SimConfig *config,
+                      SimStats *stats, SimTickCallback callback, void *user)
+{
+    int d;
+
+    if (session == NULL || config == NULL || stats == NULL ||
+        (session->state != SIM_SESSION_IDLE &&
+         session->state != SIM_SESSION_STOPPED &&
+         session->state != SIM_SESSION_COMPLETED) ||
+        !sim_config_validate(config, NULL, 0) ||
+        !vg_init(&session->generator, config->num_directions, config->arrival_rate)) {
+        return 0;
+    }
+    session->config = *config;
+    session->stats = stats;
+    session->callback = callback;
+    session->user = user;
+    session->next_tick = 0;
+    stats_init(stats);
+    for (d = 0; d < config->num_directions; d++) {
+        queue_init(&session->queues[d]);
+    }
+    session->state = SIM_SESSION_RUNNING;
+    return 1;
+}
+
+int sim_session_pause(SimSession *session)
+{
+    if (session == NULL || session->state != SIM_SESSION_RUNNING) return 0;
+    session->state = SIM_SESSION_PAUSED;
+    return 1;
+}
+
+int sim_session_resume(SimSession *session)
+{
+    if (session == NULL || session->state != SIM_SESSION_PAUSED) return 0;
+    session->state = SIM_SESSION_RUNNING;
+    return 1;
+}
+
+int sim_session_stop(SimSession *session)
+{
+    if (session == NULL || (session->state != SIM_SESSION_RUNNING &&
+        session->state != SIM_SESSION_PAUSED)) return 0;
+    session_finish(session, SIM_SESSION_STOPPED);
+    return 1;
+}
+
+int sim_session_step(SimSession *session)
+{
     SimTickInfo info;
     Vehicle vehicle;
     unsigned int tick;
     int d;
     int k;
 
-    if (config == NULL || stats == NULL ||
-        !sim_config_validate(config, NULL, 0) ||
-        !vg_init(&generator, config->num_directions, config->arrival_rate)) {
+    if (session == NULL || session->state != SIM_SESSION_RUNNING) {
         return 0;
     }
 
-    stats_init(stats);
+    if (session->next_tick >= (unsigned int)session->config.total_ticks) {
+        session_finish(session, SIM_SESSION_COMPLETED);
+        return 0;
+    }
+    tick = session->next_tick;
+    memset(&info, 0, sizeof info);
+    info.tick = tick;
+    info.num_directions = session->config.num_directions;
 
-    for (d = 0; d < config->num_directions; d++) {
-        queue_init(&queues[d]);
+    /* 1. Arrivals. The initial vehicles are placed at tick 0, then every
+     *    direction receives vehicles at its own configured density. */
+    if (tick == 0) {
+        for (d = 0; d < session->config.num_directions; d++) {
+            for (k = 0; k < session->config.initial_vehicles; k++) {
+                admit_vehicle(&session->queues[d],
+                              vg_new_vehicle(&session->generator, tick),
+                              d, session->stats, &info);
+            }
+        }
+    }
+    for (d = 0; d < session->config.num_directions; d++) {
+        if (vg_arrival(&session->generator, d, tick, &vehicle)) {
+            admit_vehicle(&session->queues[d], vehicle, d, session->stats, &info);
+        }
     }
 
-    for (tick = 0; tick < (unsigned int)config->total_ticks; tick++) {
-        memset(&info, 0, sizeof info);
-        info.tick = tick;
-        info.num_directions = config->num_directions;
+    /* 2. The queue peak is sampled after arrivals, before anyone leaves. */
+    for (d = 0; d < session->config.num_directions; d++) {
+        stats_record_queue_length(session->stats, session->queues[d].size);
+    }
 
-        /* 1. Arrivals. The initial vehicles are placed at tick 0, then every
- *    direction receives vehicles at its own configured density. */
-        if (tick == 0) {
-            for (d = 0; d < config->num_directions; d++) {
-                for (k = 0; k < config->initial_vehicles; k++) {
-                    admit_vehicle(&queues[d], vg_new_vehicle(&generator, tick),
-                                  d, stats, &info);
+    /* 3. Departures: only the green direction releases vehicles, oldest first. */
+    for (d = 0; d < session->config.num_directions; d++) {
+        info.signal[d] = sim_signal_at(&session->config, d, tick);
+        info.remaining_duration[d] =
+            sim_signal_remaining_at(&session->config, d, tick);
+
+        if (info.signal[d] == SIM_SIGNAL_GREEN) {
+            for (k = 0; k < session->config.discharge_per_tick; k++) {
+                if (!dequeue(&session->queues[d], &vehicle)) {
+                    break;
                 }
+                stats_record_departure(session->stats, tick - vehicle.arrival_tick);
+                info.departed_id[d][info.departed[d]] = vehicle.id;
+                info.departed[d]++;
             }
         }
-
-        for (d = 0; d < config->num_directions; d++) {
-            if (vg_arrival(&generator, d, tick, &vehicle)) {
-                admit_vehicle(&queues[d], vehicle, d, stats, &info);
-            }
-        }
-
-        /* 2. The queue peak is sampled after arrivals, before anyone leaves. */
-        for (d = 0; d < config->num_directions; d++) {
-            stats_record_queue_length(stats, queues[d].size);
-        }
-
-        /* 3. Departures: only the green direction releases vehicles, oldest first. */
-        for (d = 0; d < config->num_directions; d++) {
-            info.signal[d] = sim_signal_at(config, d, tick);
-
-            info.remaining_duration[d] =
-                sim_signal_remaining_at(config, d, tick);
-
-            if (info.signal[d] == SIM_SIGNAL_GREEN) {
-                for (k = 0; k < config->discharge_per_tick; k++) {
-                    if (!dequeue(&queues[d], &vehicle)) {
-                        break;
-                    }
-
-                    stats_record_departure(stats, tick - vehicle.arrival_tick);
-                    info.departed_id[d][info.departed[d]] = vehicle.id;
-                    info.departed[d]++;
-                }
-            }
-
-            info.queue_length[d] = queues[d].size;
-        }
-
-        if (callback != NULL) {
-            callback(&info, user);
-        }
+        info.queue_length[d] = session->queues[d].size;
     }
 
-/* Dropped and remaining come from the queues themselves, so the integrity
- * check in stats_is_conserved compares independent counters. */
-    stats->ticks = (unsigned int)config->total_ticks;
-
-    for (d = 0; d < config->num_directions; d++) {
-        stats->dropped += queues[d].dropped;
-        stats->remaining += (unsigned long)queues[d].size;
+    if (session->callback != NULL) {
+        session->callback(&info, session->user);
     }
+    session->next_tick++;
+    if (session->next_tick == (unsigned int)session->config.total_ticks) {
+        session_finish(session, SIM_SESSION_COMPLETED);
+    }
+    return 1;
+}
 
+int sim_run(const SimConfig *config, SimStats *stats,
+            SimTickCallback callback, void *user)
+{
+    SimSession session = {0};
+
+    if (!sim_session_start(&session, config, stats, callback, user)) {
+        return 0;
+    }
+    while (session.state == SIM_SESSION_RUNNING) {
+        (void)sim_session_step(&session);
+    }
     return 1;
 }
