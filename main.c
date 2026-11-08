@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "input.h"
 #include "queue.h"
@@ -71,6 +72,99 @@ static int chooseRunLength(int greenTicks, int yellowTicks)
     return twoCycles > MIN_RUN_TICKS ? twoCycles : MIN_RUN_TICKS;
 }
 
+/* Line-based commands keep control portable across the supported CI systems. */
+static int readControlCommand(char *command, size_t size)
+{
+    size_t length;
+
+    if (fgets(command, (int)size, stdin) == NULL) return 0;
+    length = strlen(command);
+    while (length > 0 && (command[length - 1] == '\n' || command[length - 1] == '\r')) {
+        command[--length] = '\0';
+    }
+    return 1;
+}
+
+static int runWithControls(const SimConfig *config, SimStats *stats)
+{
+    SimSession session = {0};
+    char command[32];
+    int automatic = 0;
+    int has_run = 0;
+
+    for (;;) {
+        printf("\nType start to begin (or quit to exit): ");
+        if (!readControlCommand(command, sizeof command)) {
+            if (has_run) return 1;
+            if (automatic) return 1;
+            /* Preserve the historical config-only piped workflow used by CI. */
+            automatic = 1;
+            memcpy(command, "start", sizeof "start");
+        }
+        if (strcmp(command, "quit") == 0) return 1;
+        if (strcmp(command, "start") != 0) {
+            printf("Error: enter start or quit.\n");
+            continue;
+        }
+        if (!sim_session_start(&session, config, stats, displayTick, NULL)) {
+            fprintf(stderr, "Error: Simulation could not start.\n");
+            return 0;
+        }
+        has_run = 1;
+        printf("Started. Enter or step advances one tick; pause, resume, and stop control the run.\n");
+
+        while (session.state == SIM_SESSION_RUNNING ||
+               session.state == SIM_SESSION_PAUSED) {
+            if (session.state == SIM_SESSION_RUNNING && automatic) {
+                (void)sim_session_step(&session);
+                continue;
+            }
+            printf("[%s, tick %u/%d] command> ",
+                   session.state == SIM_SESSION_RUNNING ? "running" : "paused",
+                   session.next_tick, config->total_ticks);
+            if (!readControlCommand(command, sizeof command)) {
+                if (session.state == SIM_SESSION_RUNNING ||
+                    session.state == SIM_SESSION_PAUSED) {
+                    (void)sim_session_stop(&session);
+                    printf("\nInput ended; stopped safely at tick %u.\n", stats->ticks);
+                }
+                break;
+            }
+            if (strcmp(command, "") == 0 || strcmp(command, "step") == 0) {
+                if (!sim_session_step(&session)) {
+                    printf("Error: the session cannot advance in its current state.\n");
+                }
+            } else if (strcmp(command, "pause") == 0) {
+                if (!sim_session_pause(&session)) {
+                    printf("Error: pause is only valid while running.\n");
+                } else {
+                    printf("Paused at tick %u. Generation and signal processing are stopped.\n",
+                           session.next_tick);
+                }
+            } else if (strcmp(command, "resume") == 0) {
+                if (!sim_session_resume(&session)) {
+                    printf("Error: resume is only valid while paused.\n");
+                } else {
+                    printf("Resumed at tick %u.\n", session.next_tick);
+                }
+            } else if (strcmp(command, "stop") == 0) {
+                if (sim_session_stop(&session)) printf("Stopped safely at tick %u.\n", stats->ticks);
+                else printf("Error: stop is only valid for an active session.\n");
+            } else {
+                printf("Error: use step, pause, resume, or stop.\n");
+            }
+        }
+
+        printf("\n");
+        report_print(stdout, stats);
+        if (!stats_is_conserved(stats)) return 0;
+        if (automatic) return 1;
+        if (session.state == SIM_SESSION_COMPLETED) printf("Run complete. ");
+        else printf("Run stopped. ");
+        printf("Type start to run again, or quit to exit.\n");
+    }
+}
+
 int main(void)
 {
     SimConfig config;
@@ -115,15 +209,7 @@ int main(void)
            trafficDensity);
     printf("Simulated time: %d seconds\n", config.total_ticks);
 
-    printf("\nTRAFFIC MANAGEMENT SIMULATION\n\n");
-
-    if (!sim_run(&config, &stats, displayTick, NULL)) {
-        fprintf(stderr, "Error: Simulation could not run.\n");
-        return EXIT_FAILURE;
-    }
-
-    printf("\n");
-    report_print(stdout, &stats);
-
-    return stats_is_conserved(&stats) ? EXIT_SUCCESS : EXIT_FAILURE;
+    printf("\nTRAFFIC MANAGEMENT SIMULATION\n");
+    printf("Controls use whole-line commands between ticks; no background timer is used.\n");
+    return runWithControls(&config, &stats) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
