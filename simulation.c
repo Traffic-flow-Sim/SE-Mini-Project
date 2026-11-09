@@ -216,13 +216,18 @@ int sim_session_start(SimSession *session, const SimConfig *config,
     session->callback = callback;
     session->user = user;
     session->next_tick = 0;
+    session->audit_count = 0;
     stats_init(stats);
     for (d = 0; d < config->num_directions; d++) {
-        queue_init(&session->queues[d]);
-    }
+    queue_init(&session->queues[d]);
+
+    /* Before the simulation begins, all signals are RED. */
+    session->previous_signal[d] = SIM_SIGNAL_RED;
+}
+
     session->state = SIM_SESSION_RUNNING;
     return 1;
-}
+    }
 
 int sim_session_pause(SimSession *session)
 {
@@ -246,6 +251,7 @@ int sim_session_stop(SimSession *session)
     return 1;
 }
 
+
 int sim_session_step(SimSession *session)
 {
     SimTickInfo info;
@@ -262,13 +268,13 @@ int sim_session_step(SimSession *session)
         session_finish(session, SIM_SESSION_COMPLETED);
         return 0;
     }
+
     tick = session->next_tick;
     memset(&info, 0, sizeof info);
     info.tick = tick;
     info.num_directions = session->config.num_directions;
 
-    /* 1. Arrivals. The initial vehicles are placed at tick 0, then every
-     *    direction receives vehicles at its own configured density. */
+    /* 1. Arrivals. */
     if (tick == 0) {
         for (d = 0; d < session->config.num_directions; d++) {
             for (k = 0; k < session->config.initial_vehicles; k++) {
@@ -278,44 +284,96 @@ int sim_session_step(SimSession *session)
             }
         }
     }
+
     for (d = 0; d < session->config.num_directions; d++) {
         if (vg_arrival(&session->generator, d, tick, &vehicle)) {
-            admit_vehicle(&session->queues[d], vehicle, d, session->stats, &info);
+            admit_vehicle(&session->queues[d], vehicle, d,
+                          session->stats, &info);
         }
     }
 
-    /* 2. The queue peak is sampled after arrivals, before anyone leaves. */
+    /* 2. Sample queue peaks after arrivals. */
     for (d = 0; d < session->config.num_directions; d++) {
         stats_record_queue_length(session->stats, session->queues[d].size);
     }
 
-    /* 3. Departures: only the green direction releases vehicles, oldest first. */
+    /* 3. Process signal changes and vehicle departures. */
     for (d = 0; d < session->config.num_directions; d++) {
-        info.signal[d] = sim_signal_at(&session->config, d, tick);
+        SimSignal current_signal;
+
+        current_signal = sim_signal_at(&session->config, d, tick);
+
+        /* Record every signal transition in chronological order. */
+        if (current_signal != session->previous_signal[d]) {
+            if (session->audit_count <
+                sizeof session->audit_log / sizeof session->audit_log[0]) {
+
+                SimSignalAuditEntry *entry =
+                    &session->audit_log[session->audit_count];
+
+                entry->tick = tick;
+                entry->direction = d;
+                entry->previous_signal = session->previous_signal[d];
+                entry->new_signal = current_signal;
+
+                session->audit_count++;
+            }
+
+            session->previous_signal[d] = current_signal;
+        }
+
+        info.signal[d] = current_signal;
         info.remaining_duration[d] =
             sim_signal_remaining_at(&session->config, d, tick);
 
-        if (info.signal[d] == SIM_SIGNAL_GREEN) {
+        if (current_signal == SIM_SIGNAL_GREEN) {
             for (k = 0; k < session->config.discharge_per_tick; k++) {
                 if (!dequeue(&session->queues[d], &vehicle)) {
                     break;
                 }
-                stats_record_departure(session->stats, tick - vehicle.arrival_tick);
+
+                stats_record_departure(
+                    session->stats, tick - vehicle.arrival_tick);
+
                 info.departed_id[d][info.departed[d]] = vehicle.id;
                 info.departed[d]++;
             }
         }
+
         info.queue_length[d] = session->queues[d].size;
     }
 
     if (session->callback != NULL) {
         session->callback(&info, session->user);
     }
+
     session->next_tick++;
+
     if (session->next_tick == (unsigned int)session->config.total_ticks) {
         session_finish(session, SIM_SESSION_COMPLETED);
     }
+
     return 1;
+}
+
+
+size_t sim_session_audit_count(const SimSession *session)
+{
+    if (session == NULL) {
+        return 0;
+    }
+
+    return session->audit_count;
+}
+
+const SimSignalAuditEntry *sim_session_audit_get(
+    const SimSession *session, size_t index)
+{
+    if (session == NULL || index >= session->audit_count) {
+        return NULL;
+    }
+
+    return &session->audit_log[index];
 }
 
 int sim_run(const SimConfig *config, SimStats *stats,

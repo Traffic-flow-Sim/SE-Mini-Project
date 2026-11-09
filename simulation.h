@@ -25,6 +25,14 @@ typedef enum {
     SIM_SIGNAL_YELLOW
 } SimSignal;
 
+/* One recorded change in a direction's traffic signal. */
+typedef struct {
+    unsigned int tick;
+    int direction;
+    SimSignal previous_signal;
+    SimSignal new_signal;
+} SimSignalAuditEntry;
+
 /*
  * Time is measured in logical ticks (1 tick = 1 simulated second); ticks are
  * numbered from 0. Directions are numbered 0..3 (North, South, East, West) and
@@ -83,8 +91,14 @@ typedef struct {
     VehicleGenerator generator;
     unsigned int next_tick;
     SimSessionState state;
-} SimSession;
 
+    /* Signal-change audit history. */
+    SimSignalAuditEntry audit_log[2 * SIM_MAX_TICKS];
+    size_t audit_count;
+
+    /* Previous signal state for transition detection. */
+    SimSignal previous_signal[SIM_MAX_DIRECTIONS];
+} SimSession;
 void sim_config_default(SimConfig *config);
 
 /* Sets the same traffic density (vehicles per 100 ticks) for every direction. */
@@ -104,6 +118,12 @@ int sim_session_resume(SimSession *session);
 int sim_session_stop(SimSession *session);
 /* Advances exactly one tick while RUNNING; returns 1 when a tick was run. */
 int sim_session_step(SimSession *session);
+/* Number of signal changes recorded in the session. */
+size_t sim_session_audit_count(const SimSession *session);
+
+/* Retrieve an audit entry by chronological index; NULL if invalid. */
+const SimSignalAuditEntry *sim_session_audit_get(
+    const SimSession *session, size_t index);
 
 /* Signal shown to one direction at a tick (RED for any invalid argument). */
 SimSignal sim_signal_at(const SimConfig *config, int direction, unsigned int tick);
