@@ -76,6 +76,38 @@ static void displayTick(const SimTickInfo *info, void *user)
 }
 
 
+/* Display the chronological traffic signal audit history. */
+static void displaySignalAudit(const SimSession *session)
+{
+    size_t i;
+    const SimSignalAuditEntry *entry;
+
+    printf("\n========== SIGNAL CHANGE AUDIT TRAIL ==========\n");
+
+    if (sim_session_audit_count(session) == 0) {
+        printf("No signal changes recorded.\n");
+    } else {
+        printf("%-8s %-12s %-12s %-12s\n",
+               "Tick", "Direction", "Previous", "New");
+
+        for (i = 0; i < sim_session_audit_count(session); i++) {
+            entry = sim_session_audit_get(session, i);
+
+            if (entry != NULL) {
+                printf("%-8u %-12s %-12s %-12s\n",
+                       entry->tick,
+                       directionNames[entry->direction],
+                       sim_signal_name(entry->previous_signal),
+                       sim_signal_name(entry->new_signal));
+            }
+        }
+    }
+
+    printf("================================================\n");
+}
+
+
+
 /* Long enough for every direction to get at least two green phases. */
 static int chooseRunLength(int greenTicks, int yellowTicks)
 {
@@ -173,6 +205,7 @@ static int runWithControls(const SimConfig *config, SimStats *stats)
         }
 
         printf("\n");
+        displaySignalAudit(&session);
         report_print(stdout, stats);
         if (!stats_is_conserved(stats)) return 0;
         if (automatic) return 1;
