@@ -36,20 +36,21 @@ static int getValidatedInput(const char *prompt, int min, int max)
     return value;
 }
 
-/* Called by the simulation after every tick: signal and queue length per direction. */
+/* Called after every simulation tick to display live traffic status. */
 static void displayTick(const SimTickInfo *info, void *user)
 {
     int i;
     int arrived = 0;
     int passed = 0;
     int dropped = 0;
+    int totalWaiting = 0;
+    const SimStats *stats = (const SimStats *)user;
 
-    (void)user;
-
-    printf("Tick %03u", info->tick);
+    printf("\n========== LIVE TRAFFIC STATUS ==========\n");
+    printf("Tick: %03u\n", info->tick);
 
     for (i = 0; i < info->num_directions; i++) {
-        printf(" | %-5s %-6s rem=%2ds q=%-3d",
+        printf("%-5s | Signal: %-6s | Remaining: %2ds | Queue: %d\n",
                directionNames[i],
                sim_signal_name(info->signal[i]),
                info->remaining_duration[i],
@@ -58,11 +59,22 @@ static void displayTick(const SimTickInfo *info, void *user)
         arrived += info->generated[i];
         passed += info->departed[i];
         dropped += info->dropped[i];
+        totalWaiting += info->queue_length[i];
     }
 
-    printf(" || arrived %d, passed %d, dropped %d\n",
-           arrived, passed, dropped);
+    printf("-----------------------------------------\n");
+    printf("Vehicles arrived this tick : %d\n", arrived);
+    printf("Vehicles passed this tick  : %d\n", passed);
+    printf("Vehicles dropped this tick : %d\n", dropped);
+
+    if (stats != NULL) {
+        printf("Total vehicles passed      : %lu\n", stats->passed);
+    }
+
+    printf("Total vehicles waiting     : %d\n", totalWaiting);
+    printf("=========================================\n");
 }
+
 
 /* Long enough for every direction to get at least two green phases. */
 static int chooseRunLength(int greenTicks, int yellowTicks)
@@ -78,12 +90,17 @@ static int readControlCommand(char *command, size_t size)
     size_t length;
 
     if (fgets(command, (int)size, stdin) == NULL) return 0;
+
     length = strlen(command);
-    while (length > 0 && (command[length - 1] == '\n' || command[length - 1] == '\r')) {
+
+    while (length > 0 &&
+           (command[length - 1] == '\n' || command[length - 1] == '\r')) {
         command[--length] = '\0';
     }
+
     return 1;
 }
+
 
 static int runWithControls(const SimConfig *config, SimStats *stats)
 {
@@ -106,7 +123,7 @@ static int runWithControls(const SimConfig *config, SimStats *stats)
             printf("Error: enter start or quit.\n");
             continue;
         }
-        if (!sim_session_start(&session, config, stats, displayTick, NULL)) {
+        if (!sim_session_start(&session, config, stats, displayTick, stats)) {
             fprintf(stderr, "Error: Simulation could not start.\n");
             return 0;
         }
