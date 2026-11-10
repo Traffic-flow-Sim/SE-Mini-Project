@@ -7,6 +7,7 @@
 #include "queue.h"
 #include "simulation.h"
 #include "stats.h"
+#include "multi_intersection_cli.h"
 
 #define NUM_DIRECTIONS SIM_MAX_DIRECTIONS
 #define MAX_SIGNAL_DURATION SIM_MAX_GREEN_TICKS
@@ -215,8 +216,18 @@ static int runWithControls(const SimConfig *config, SimStats *stats)
     }
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    if (argc == 2 && strcmp(argv[1], "--multi") == 0) {
+        return runMultiIntersectionMode()
+            ? EXIT_SUCCESS
+            : EXIT_FAILURE;
+    }
+
+    if (argc != 1) {
+        fprintf(stderr, "Usage: traffic_sim.exe [--multi]\n");
+        return EXIT_FAILURE;
+    }
     SimConfig config;
     SimStats stats;
     char error[96];
