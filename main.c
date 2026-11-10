@@ -119,42 +119,92 @@ static int chooseRunLength(int greenTicks, int yellowTicks)
 /* Line-based commands keep control portable across the supported CI systems. */
 static int readControlCommand(char *command, size_t size)
 {
-    size_t length;
+    int status;
 
-    if (fgets(command, (int)size, stdin) == NULL) return 0;
-
-    length = strlen(command);
-
-    while (length > 0 &&
-           (command[length - 1] == '\n' || command[length - 1] == '\r')) {
-        command[--length] = '\0';
-    }
-
+    status = read_line_bounded(stdin, command, size);
+    if (status != 1) return status;
+    trim_command_whitespace(command);
     return 1;
 }
 
 
-static int runWithControls(const SimConfig *config, SimStats *stats)
+static void displayConfiguration(const SimConfig *config)
+{
+    int d;
+    printf("\n========== SETTINGS FOR NEXT RUN ==========\n");
+    printf("Directions: %d\n", config->num_directions);
+    for (d = 0; d < config->num_directions; d++)
+        printf("%-5s | Density: %d vehicles per 100 seconds\n",
+               directionNames[d], config->arrival_rate[d]);
+    printf("Green: %d seconds | Yellow: %d seconds\n",
+           config->green_ticks, config->yellow_ticks);
+    printf("Queue capacity: %d | Initial vehicles: %d per direction\n",
+           config->queue_capacity, config->initial_vehicles);
+    printf("Run length: %d seconds\n", config->total_ticks);
+    printf("===========================================\n");
+}
+
+static int configureOption(SimConfig *config, const char *command)
+{
+    int value, direction;
+    char prompt[128];
+    if (strcmp(command, "density") == 0) {
+        direction = getValidatedInput("Direction (1-North, 2-South, 3-East, 4-West): ", 1, config->num_directions) - 1;
+        snprintf(prompt, sizeof prompt, "%s density (0-%d vehicles per 100 seconds): ", directionNames[direction], SIM_MAX_ARRIVAL_RATE);
+        value = getValidatedInput(prompt, 0, SIM_MAX_ARRIVAL_RATE);
+        config->arrival_rate[direction] = value;
+    } else if (strcmp(command, "directions") == 0) {
+        value = getValidatedInput("Number of directions (2-4): ", SIM_MIN_DIRECTIONS, SIM_MAX_DIRECTIONS);
+        config->num_directions = value;
+    } else if (strcmp(command, "green") == 0) {
+        value = getValidatedInput("Green duration (1-120 seconds): ", SIM_MIN_GREEN_TICKS, SIM_MAX_GREEN_TICKS);
+        config->green_ticks = value;
+    } else if (strcmp(command, "yellow") == 0) {
+        value = getValidatedInput("Yellow duration (1-30 seconds): ", SIM_MIN_YELLOW_TICKS, SIM_MAX_YELLOW_TICKS);
+        config->yellow_ticks = value;
+    } else if (strcmp(command, "capacity") == 0) {
+        value = getValidatedInput("Queue capacity (at least current initial vehicles, at most 100): ", config->initial_vehicles > 1 ? config->initial_vehicles : 1, QUEUE_CAPACITY);
+        config->queue_capacity = value;
+    } else if (strcmp(command, "initial") == 0) {
+        value = getValidatedInput("Initial vehicles per direction: ", 0, config->queue_capacity);
+        config->initial_vehicles = value;
+    } else if (strcmp(command, "length") == 0) {
+        value = getValidatedInput("Run length (1-10000 seconds): ", SIM_MIN_TICKS, SIM_MAX_TICKS);
+        config->total_ticks = value;
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
+static int runWithControls(SimConfig *config, SimStats *stats)
 {
     SimSession session = {0};
     char command[32];
     int automatic = 0;
     int has_run = 0;
+    int input_status;
 
     for (;;) {
-        printf("\nType start to begin (or quit to exit): ");
-        if (!readControlCommand(command, sizeof command)) {
+        printf("\nConfigure: density, directions, green, yellow, capacity, initial, length. Type start or quit: ");
+        input_status = readControlCommand(command, sizeof command);
+        if (input_status == 0) {
             if (has_run) return 1;
             if (automatic) return 1;
             /* Preserve the historical config-only piped workflow used by CI. */
             automatic = 1;
             memcpy(command, "start", sizeof "start");
-        }
-        if (strcmp(command, "quit") == 0) return 1;
-        if (strcmp(command, "start") != 0) {
-            printf("Error: enter start or quit.\n");
+        } else if (input_status < 0) {
+            printf("Error: command is too long.\n");
             continue;
         }
+        if (strcmp(command, "quit") == 0) return 1;
+        if (configureOption(config, command)) continue;
+        if (strcmp(command, "start") != 0) {
+            printf("Error: enter a setting name, start, or quit.\n");
+            continue;
+        }
+        displayConfiguration(config);
         if (!sim_session_start(&session, config, stats, displayTick, stats)) {
             fprintf(stderr, "Error: Simulation could not start.\n");
             return 0;
@@ -170,14 +220,21 @@ static int runWithControls(const SimConfig *config, SimStats *stats)
             }
             printf("[%s, tick %u/%d] command> ",
                    session.state == SIM_SESSION_RUNNING ? "running" : "paused",
-                   session.next_tick, config->total_ticks);
-            if (!readControlCommand(command, sizeof command)) {
-                if (session.state == SIM_SESSION_RUNNING ||
-                    session.state == SIM_SESSION_PAUSED) {
-                    (void)sim_session_stop(&session);
-                    printf("\nInput ended; stopped safely at tick %u.\n", stats->ticks);
+                   session.next_tick, session.config.total_ticks);
+            {
+                int command_status = readControlCommand(command, sizeof command);
+                if (command_status < 0) {
+                    printf("Error: command is too long.\n");
+                    continue;
                 }
-                break;
+                if (!command_status) {
+                    if (session.state == SIM_SESSION_RUNNING ||
+                        session.state == SIM_SESSION_PAUSED) {
+                        (void)sim_session_stop(&session);
+                        printf("\nInput ended; stopped safely at tick %u.\n", stats->ticks);
+                    }
+                    break;
+                }
             }
             if (strcmp(command, "") == 0 || strcmp(command, "step") == 0) {
                 if (!sim_session_step(&session)) {
@@ -211,7 +268,7 @@ static int runWithControls(const SimConfig *config, SimStats *stats)
         if (automatic) return 1;
         if (session.state == SIM_SESSION_COMPLETED) printf("Run complete. ");
         else printf("Run stopped. ");
-        printf("Type start to run again, or quit to exit.\n");
+        printf("Reconfigure any setting, type start to run again, or quit to exit.\n");
     }
 }
 
@@ -251,13 +308,7 @@ int main(void)
         return EXIT_FAILURE;
     }
 
-    printf("\nConfiguration saved for this run.\n");
-    printf("Initial vehicles: %d per direction\n", initialVehicles);
-    printf("Green signal duration: %d seconds per direction\n",
-           signalDuration);
-    printf("Traffic density: %d vehicles per direction per 100 seconds\n",
-           trafficDensity);
-    printf("Simulated time: %d seconds\n", config.total_ticks);
+    config.queue_capacity = QUEUE_CAPACITY;
 
     printf("\nTRAFFIC MANAGEMENT SIMULATION\n");
     printf("Controls use whole-line commands between ticks; no background timer is used.\n");

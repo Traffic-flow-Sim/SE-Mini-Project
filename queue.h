@@ -13,6 +13,7 @@ typedef struct {
     Vehicle items[QUEUE_CAPACITY];
     int front;
     int size;
+    int capacity; /* logical limit; never larger than the backing array */
     unsigned int dropped; /* vehicles rejected because the queue was full */
 } VehicleQueue;
 

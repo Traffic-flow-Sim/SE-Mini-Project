@@ -21,6 +21,9 @@ typedef enum {
  */
 int read_line_bounded(FILE *in, char *buf, size_t size);
 
+/* Removes leading and trailing spaces/tabs in place; leaves blank input empty. */
+void trim_command_whitespace(char *text);
+
 /*
  * Strict whole-number parse: surrounding spaces are allowed; anything else
  * (empty text, letters, decimals, trailing characters) is INPUT_NOT_A_NUMBER.
