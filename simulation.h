@@ -47,6 +47,7 @@ typedef struct {
 typedef struct {
     int num_directions;      /* SIM_MIN_DIRECTIONS .. SIM_MAX_DIRECTIONS */
     int initial_vehicles;    /* waiting in every direction at tick 0 (0 .. QUEUE_CAPACITY) */
+    int queue_capacity;      /* logical queue capacity (1 .. QUEUE_CAPACITY) */
     int arrival_rate[SIM_MAX_DIRECTIONS]; /* traffic density: new vehicles per 100 ticks, per
                                              direction, 0 .. SIM_MAX_ARRIVAL_RATE.
                                              Only the first num_directions entries are used. */

@@ -42,14 +42,28 @@ jobs:
       - name: Run application smoke test
         run: |
           # answers: initial vehicles, green duration, traffic density
-          printf '1\n1\n20\n' | ./traffic_management > run.log
+          python - <<'PY'
+          import os
+          import subprocess
+
+          executable = "./traffic_management.exe" if os.name == "nt" else "./traffic_management"
+          result = subprocess.run(
+              [executable], input="start\n" + "\n" * 120 + "no\nquit\n", text=True,
+              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+          )
+          with open("run.log", "w", encoding="utf-8") as log:
+              log.write(result.stdout)
+          if result.returncode != 0:
+              raise SystemExit(f"application exited with status {result.returncode}")
+          if "Ticks simulated       : 120" not in result.stdout or "Integrity check       : OK" not in result.stdout:
+              raise SystemExit("application did not complete its piped-input smoke run")
+          PY
           tail -n 12 run.log
-          grep -q "Integrity check       : OK" run.log
           grep -q "Maximum queue length" run.log
 
       - name: Exercise simulation console controls
         run: |
-          printf '1\n1\n20\nstart\nresume\nstep\npause\nstep\nresume\nstep\nstop\n' | ./traffic_management > controls.log
+          printf 'start\nresume\nstep\npause\nstep\nresume\nstep\nstop\nno\nquit\n' | ./traffic_management > controls.log
           grep -q "resume is only valid while paused" controls.log
           grep -q "Paused at tick 1" controls.log
           grep -q "Resumed at tick 1" controls.log
@@ -62,35 +76,69 @@ jobs:
           # Density 0   -> only the 8 initial vehicles.
           # Density 50  -> 8 + 4 x floor(60 x 50 / 100)  = 128.
           # Density 100 -> 8 + 4 x floor(60 x 100 / 100) = 248.
-          printf '2\n1\n0\n' | ./traffic_management > density_0.log
+          run_density() {
+            rate="$1"
+            {
+              printf 'edit\ninitial\n2\ngreen\n1\n'
+              for direction in 1 2 3 4; do printf 'density\n%s\n%s\n' "$direction" "$rate"; done
+              printf 'length\n60\ndone\nstart\n'
+              for ((tick = 0; tick < 60; tick++)); do printf '\n'; done
+              printf 'no\nquit\n'
+            } | ./traffic_management > "density_${rate}.log"
+          }
+          run_density 0
           grep -q "Vehicles generated    : 8$" density_0.log
-          printf '2\n1\n50\n' | ./traffic_management > density_50.log
+          run_density 50
           grep -q "Vehicles generated    : 128$" density_50.log
-          printf '2\n1\n100\n' | ./traffic_management > density_100.log
+          run_density 100
           grep -q "Vehicles generated    : 248$" density_100.log
           grep -q "Integrity check       : OK" density_100.log
 
+      - name: Save, load and confirm configuration overwrite
+        run: |
+          {
+            printf 'start\nstop\nyes\nci_config.csv\n'
+            printf 'edit\ndensity\n1\n42\ndone\nsave\nci_config.csv\nno\n'
+            printf 'save\nci_config.csv\nyes\nquit\n'
+          } | ./traffic_management > config_save.log
+          grep -q "Save cancelled; existing file was kept." config_save.log
+          grep -q "Configuration saved to 'ci_config.csv'." config_save.log
+          grep -q '^4,42,20,20,20,' ci_config.csv
+          printf 'load\nci_config.csv\nstart\nstop\nno\nquit\n' | ./traffic_management > config_load.log
+          grep -q "Configuration loaded." config_load.log
+          grep -q "North | Density: 42 vehicles per 100 seconds" config_load.log
+          rm -f ci_config.csv
+
       - name: Application rejects bad configuration input
         run: |
-          # letters, zero, negative, above the maximum, overflow, then valid 2, 1 and 20
-          printf 'abc\n0\n-5\n101\n99999999999999999999\n2\n1\n20\n' | ./traffic_management > bad_input.log
+          {
+            printf 'edit\ninitial\nabc\n101\n2\n'
+            printf 'density\n1\n-1\n101\nxyz\n20\n'
+            printf 'length\n0\n10001\n60\ndone\nstart\n'
+            for ((tick = 0; tick < 60; tick++)); do printf '\n'; done
+            printf 'no\nquit\n'
+          } | ./traffic_management > bad_input.log
           grep -q "Error: Enter a valid whole number." bad_input.log
-          grep -q "Error: Enter a value between 1 and 100." bad_input.log
+          grep -q "Error: Enter a value between 0 and 100." bad_input.log
+          grep -q "Error: Enter a value between 1 and 10000." bad_input.log
           grep -q "Initial vehicles: 2 per direction" bad_input.log
+          grep -q "North | Density: 20 vehicles per 100 seconds" bad_input.log
           grep -q "Integrity check       : OK" bad_input.log
-          # the density prompt accepts 0 but rejects negatives, letters and values above 100
-          printf '2\n1\n-1\n101\nxyz\n20\n' | ./traffic_management > bad_density.log
-          grep -q "Error: Enter a value between 0 and 100." bad_density.log
-          grep -q "Error: Enter a valid whole number." bad_density.log
-          grep -q "Traffic density: 20 vehicles per direction per 100 seconds" bad_density.log
-          grep -q "Integrity check       : OK" bad_density.log
           # a 200-character line must be rejected, not split into later answers
-          printf '%0200d\n2\n1\n20\n' 5 | ./traffic_management > long_input.log
+          {
+            printf 'edit\ninitial\n%0200d\n2\nlength\n60\ndone\nstart\n' 5
+            for ((tick = 0; tick < 60; tick++)); do printf '\n'; done
+            printf 'no\nquit\n'
+          } | ./traffic_management > long_input.log
           grep -q "Error: Input is too long." long_input.log
           grep -q "Initial vehicles: 2 per direction" long_input.log
           # input that ends early must fail cleanly instead of hanging
-          if printf '1\n1\n' | ./traffic_management > /dev/null 2>&1; then
-            echo "expected a failure when the input ends early"
+          if ! printf 'edit\ninitial\n1\n' | ./traffic_management > early_eof.log 2>&1; then
+            echo "expected clean exit when input ends during configuration"
+            exit 1
+          fi
+          if grep -q "SIMULATION SUMMARY" early_eof.log; then
+            echo "application should not start a run after incomplete configuration input"
             exit 1
           fi
 
@@ -123,8 +171,8 @@ jobs:
         run: |
           LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
           gcc $CFLAGS $SAN main.c $LIB -o traffic_management_san
-          printf '2\n3\n20\n' | ./traffic_management_san
-          printf '2\n3\n100\n' | ./traffic_management_san > /dev/null
+          { printf 'start\n'; for ((tick = 0; tick < 120; tick++)); do printf '\n'; done; printf 'no\nquit\n'; } | ./traffic_management_san > /dev/null
+          { printf 'edit\nlength\n60\ndone\nstart\n'; for ((tick = 0; tick < 60; tick++)); do printf '\n'; done; printf 'no\nquit\n'; } | ./traffic_management_san > /dev/null
           for test_source in tests/test_*.c; do
             test_name=$(basename "$test_source" .c)
             gcc $CFLAGS $SAN "$test_source" $LIB -o "${test_name}_san"
@@ -140,4 +188,4 @@ jobs:
         run: |
           LIB=$(ls *.c | grep -v -x -e main.c -e traffic_simulation.c)
           gcc $CFLAGS -g main.c $LIB -o traffic_management_vg
-          printf '2\n3\n20\n' | valgrind --leak-check=full --error-exitcode=1 ./traffic_management_vg
+          { printf 'start\n'; for ((tick = 0; tick < 120; tick++)); do printf '\n'; done; printf 'no\nquit\n'; } | valgrind --leak-check=full --error-exitcode=1 ./traffic_management_vg > /dev/null

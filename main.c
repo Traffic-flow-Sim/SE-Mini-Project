@@ -2,16 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "input.h"
+#include "config_file.h"
 #include "queue.h"
 #include "simulation.h"
 #include "stats.h"
 #include "multi_intersection_cli.h"
 
 #define NUM_DIRECTIONS SIM_MAX_DIRECTIONS
-#define MAX_SIGNAL_DURATION SIM_MAX_GREEN_TICKS
-#define MIN_RUN_TICKS 60   /* one tick is one simulated second */
 
 enum Direction {
     NORTH = 0,
@@ -109,110 +109,210 @@ static void displaySignalAudit(const SimSession *session)
 
 
 
-/* Long enough for every direction to get at least two green phases. */
-static int chooseRunLength(int greenTicks, int yellowTicks)
+static void displayConfiguration(const SimConfig *config)
 {
-    int twoCycles = 2 * NUM_DIRECTIONS * (greenTicks + yellowTicks);
-
-    return twoCycles > MIN_RUN_TICKS ? twoCycles : MIN_RUN_TICKS;
+    int d;
+    printf("\n========== SETTINGS FOR NEXT RUN ==========\n");
+    printf("Directions: %d\n", config->num_directions);
+    for (d = 0; d < config->num_directions; d++)
+        printf("%-5s | Density: %d vehicles per 100 seconds\n",
+               directionNames[d], config->arrival_rate[d]);
+    printf("Green: %d seconds | Yellow: %d seconds\n",
+           config->green_ticks, config->yellow_ticks);
+    printf("Queue capacity: %d | Initial vehicles: %d per direction\n",
+           config->queue_capacity, config->initial_vehicles);
+    printf("Run length: %d seconds\n", config->total_ticks);
+    printf("===========================================\n");
 }
 
-/* Line-based commands keep control portable across the supported CI systems. */
-static int readControlCommand(char *command, size_t size)
+static int configureOption(SimConfig *config, const char *command)
 {
-    size_t length;
-
-    if (fgets(command, (int)size, stdin) == NULL) return 0;
-
-    length = strlen(command);
-
-    while (length > 0 &&
-           (command[length - 1] == '\n' || command[length - 1] == '\r')) {
-        command[--length] = '\0';
+    int value, direction;
+    char prompt[128];
+    if (strcmp(command, "density") == 0) {
+        direction = getValidatedInput("Direction (1-North, 2-South, 3-East, 4-West): ", 1, config->num_directions) - 1;
+        snprintf(prompt, sizeof prompt, "%s density (0-%d vehicles per 100 seconds): ", directionNames[direction], SIM_MAX_ARRIVAL_RATE);
+        value = getValidatedInput(prompt, 0, SIM_MAX_ARRIVAL_RATE);
+        config->arrival_rate[direction] = value;
+    } else if (strcmp(command, "directions") == 0) {
+        value = getValidatedInput("Number of directions (2-4): ", SIM_MIN_DIRECTIONS, SIM_MAX_DIRECTIONS);
+        config->num_directions = value;
+    } else if (strcmp(command, "green") == 0) {
+        value = getValidatedInput("Green duration (1-120 seconds): ", SIM_MIN_GREEN_TICKS, SIM_MAX_GREEN_TICKS);
+        config->green_ticks = value;
+    } else if (strcmp(command, "yellow") == 0) {
+        value = getValidatedInput("Yellow duration (1-30 seconds): ", SIM_MIN_YELLOW_TICKS, SIM_MAX_YELLOW_TICKS);
+        config->yellow_ticks = value;
+    } else if (strcmp(command, "capacity") == 0) {
+        value = getValidatedInput("Queue capacity (at least current initial vehicles, at most 100): ", config->initial_vehicles > 1 ? config->initial_vehicles : 1, QUEUE_CAPACITY);
+        config->queue_capacity = value;
+    } else if (strcmp(command, "initial") == 0) {
+        value = getValidatedInput("Initial vehicles per direction: ", 0, config->queue_capacity);
+        config->initial_vehicles = value;
+    } else if (strcmp(command, "length") == 0) {
+        value = getValidatedInput("Run length (1-10000 seconds): ", SIM_MIN_TICKS, SIM_MAX_TICKS);
+        config->total_ticks = value;
+    } else {
+        return 0;
     }
-
     return 1;
 }
 
+static int readPath(const char *prompt, char *path, size_t size)
+{
+    int status;
+    for (;;) {
+        printf("%s", prompt);
+        fflush(stdout);
+        status = read_line_bounded(stdin, path, size);
+        if (status < 0) return 0;
+        if (status == 0) {
+            printf("Error: path is too long (maximum %lu characters).\n",
+                   (unsigned long)(size - 1));
+        } else if (path[0] == '\0') {
+            printf("Error: path cannot be empty.\n");
+        } else {
+            return 1;
+        }
+    }
+}
 
-static int runWithControls(const SimConfig *config, SimStats *stats)
+static int confirm(const char *prompt)
+{
+    char answer[16];
+    int status;
+    for (;;) {
+        printf("%s", prompt);
+        fflush(stdout);
+        status = read_command_line(stdin, answer, sizeof answer);
+        if (status == 0) return 0;
+        if (status < 0) printf("Error: answer is too long.\n");
+        else if (strcmp(answer, "yes") == 0 || strcmp(answer, "y") == 0) return 1;
+        else if (strcmp(answer, "no") == 0 || strcmp(answer, "n") == 0) return 0;
+        else printf("Enter yes or no.\n");
+    }
+}
+
+static int loadConfiguration(SimConfig *config)
+{
+    char path[INPUT_MAX_LINE], error[192];
+    SimConfig candidate;
+    if (!readPath("Configuration CSV path: ", path, sizeof path)) return 0;
+    candidate = *config;
+    if (!config_csv_load(path, &candidate, error, sizeof error)) {
+        printf("Load failed: %s. Current settings were kept.\n", error);
+        return 0;
+    }
+    *config = candidate;
+    printf("Configuration loaded.\n");
+    displayConfiguration(config);
+    return 1;
+}
+
+static void saveConfiguration(const SimConfig *config)
+{
+    char path[INPUT_MAX_LINE], error[192];
+    struct stat info;
+    for (;;) {
+        if (!readPath("Configuration CSV path: ", path, sizeof path)) return;
+        if (stat(path, &info) == 0 &&
+            !confirm("File exists. Overwrite it? (yes/no): ")) {
+            printf("Save cancelled; existing file was kept.\n");
+            return;
+        }
+        if (config_csv_save(path, config, error, sizeof error)) {
+            printf("Configuration saved to '%s'.\n", path);
+            return;
+        }
+        printf("Save failed: %s.\n", error);
+        if (!confirm("Retry with another path? (yes/no): ")) return;
+    }
+}
+
+static void editConfiguration(SimConfig *config)
+{
+    char command[32];
+    int status;
+    for (;;) {
+        printf("\nEdit setting: density, directions, green, yellow, capacity, initial, length, done: ");
+        status = read_command_line(stdin, command, sizeof command);
+        if (status == 0 || (status == 1 && strcmp(command, "done") == 0)) return;
+        if (status < 0) printf("Error: command is too long.\n");
+        else if (!configureOption(config, command))
+            printf("Error: choose a listed setting or done.\n");
+    }
+}
+
+static int runOne(const SimConfig *config, SimStats *stats)
 {
     SimSession session = {0};
     char command[32];
-    int automatic = 0;
-    int has_run = 0;
+    int status;
 
-    for (;;) {
-        printf("\nType start to begin (or quit to exit): ");
-        if (!readControlCommand(command, sizeof command)) {
-            if (has_run) return 1;
-            if (automatic) return 1;
-            /* Preserve the historical config-only piped workflow used by CI. */
-            automatic = 1;
-            memcpy(command, "start", sizeof "start");
-        }
-        if (strcmp(command, "quit") == 0) return 1;
-        if (strcmp(command, "start") != 0) {
-            printf("Error: enter start or quit.\n");
+    displayConfiguration(config);
+    if (!sim_session_start(&session, config, stats, displayTick, stats)) {
+        fprintf(stderr, "Error: Simulation could not start.\n");
+        return 0;
+    }
+    printf("Started. Enter or step advances one tick; pause, resume, and stop control the run.\n");
+    while (session.state == SIM_SESSION_RUNNING || session.state == SIM_SESSION_PAUSED) {
+        printf("[%s, tick %u/%d] command> ",
+               session.state == SIM_SESSION_RUNNING ? "running" : "paused",
+               session.next_tick, session.config.total_ticks);
+        status = read_command_line(stdin, command, sizeof command);
+        if (status < 0) {
+            printf("Error: command is too long.\n");
             continue;
         }
-        if (!sim_session_start(&session, config, stats, displayTick, stats)) {
-            fprintf(stderr, "Error: Simulation could not start.\n");
-            return 0;
+        if (status == 0) {
+            (void)sim_session_stop(&session);
+            printf("\nInput ended; stopped safely at tick %u.\n", stats->ticks);
+            break;
         }
-        has_run = 1;
-        printf("Started. Enter or step advances one tick; pause, resume, and stop control the run.\n");
-
-        while (session.state == SIM_SESSION_RUNNING ||
-               session.state == SIM_SESSION_PAUSED) {
-            if (session.state == SIM_SESSION_RUNNING && automatic) {
-                (void)sim_session_step(&session);
-                continue;
-            }
-            printf("[%s, tick %u/%d] command> ",
-                   session.state == SIM_SESSION_RUNNING ? "running" : "paused",
-                   session.next_tick, config->total_ticks);
-            if (!readControlCommand(command, sizeof command)) {
-                if (session.state == SIM_SESSION_RUNNING ||
-                    session.state == SIM_SESSION_PAUSED) {
-                    (void)sim_session_stop(&session);
-                    printf("\nInput ended; stopped safely at tick %u.\n", stats->ticks);
-                }
-                break;
-            }
-            if (strcmp(command, "") == 0 || strcmp(command, "step") == 0) {
-                if (!sim_session_step(&session)) {
-                    printf("Error: the session cannot advance in its current state.\n");
-                }
-            } else if (strcmp(command, "pause") == 0) {
-                if (!sim_session_pause(&session)) {
-                    printf("Error: pause is only valid while running.\n");
-                } else {
-                    printf("Paused at tick %u. Generation and signal processing are stopped.\n",
-                           session.next_tick);
-                }
-            } else if (strcmp(command, "resume") == 0) {
-                if (!sim_session_resume(&session)) {
-                    printf("Error: resume is only valid while paused.\n");
-                } else {
-                    printf("Resumed at tick %u.\n", session.next_tick);
-                }
-            } else if (strcmp(command, "stop") == 0) {
-                if (sim_session_stop(&session)) printf("Stopped safely at tick %u.\n", stats->ticks);
-                else printf("Error: stop is only valid for an active session.\n");
-            } else {
-                printf("Error: use step, pause, resume, or stop.\n");
-            }
+        if (strcmp(command, "") == 0 || strcmp(command, "step") == 0) {
+            if (!sim_session_step(&session)) printf("Error: session cannot advance now.\n");
+        } else if (strcmp(command, "pause") == 0) {
+            if (!sim_session_pause(&session)) printf("Error: pause is only valid while running.\n");
+            else printf("Paused at tick %u. Generation and signal processing are stopped.\n", session.next_tick);
+        } else if (strcmp(command, "resume") == 0) {
+            if (!sim_session_resume(&session)) printf("Error: resume is only valid while paused.\n");
+            else printf("Resumed at tick %u.\n", session.next_tick);
+        } else if (strcmp(command, "stop") == 0) {
+            if (sim_session_stop(&session)) printf("Stopped safely at tick %u.\n", stats->ticks);
+            else printf("Error: stop is only valid for an active session.\n");
+        } else {
+            printf("Error: use step, pause, resume, or stop.\n");
         }
+    }
+    printf("\n");
+    displaySignalAudit(&session);
+    report_print(stdout, stats);
+    return stats_is_conserved(stats);
+}
 
-        printf("\n");
-        displaySignalAudit(&session);
-        report_print(stdout, stats);
-        if (!stats_is_conserved(stats)) return 0;
-        if (automatic) return 1;
-        if (session.state == SIM_SESSION_COMPLETED) printf("Run complete. ");
-        else printf("Run stopped. ");
-        printf("Type start to run again, or quit to exit.\n");
+static int runWithControls(SimConfig *config, SimStats *stats)
+{
+    char command[32];
+    int has_run = 0, status;
+    for (;;) {
+        if (!has_run) printf("\nConfiguration: load, edit, start, quit: ");
+        else printf("\nNext: start, edit, load, save, quit: ");
+        status = read_command_line(stdin, command, sizeof command);
+        if (status == 0) return 1;
+        if (status < 0) printf("Error: command is too long.\n");
+        else if (strcmp(command, "quit") == 0) return 1;
+        else if (strcmp(command, "load") == 0) (void)loadConfiguration(config);
+        else if (strcmp(command, "edit") == 0) {
+            editConfiguration(config);
+            displayConfiguration(config);
+        } else if (strcmp(command, "start") == 0) {
+            if (!runOne(config, stats)) return 0;
+            has_run = 1;
+            if (confirm("Save effective configuration? (yes/no): "))
+                saveConfiguration(config);
+        } else if (has_run && strcmp(command, "save") == 0) {
+            saveConfiguration(config);
+        } else printf("Error: enter load, edit, start, or quit.\n");
     }
 }
 
@@ -231,46 +331,15 @@ int main(int argc, char *argv[])
     SimConfig config;
     SimStats stats;
     char error[96];
-    int initialVehicles;
-    int signalDuration;
-    int trafficDensity;
 
     printf("=== TRAFFIC MANAGEMENT CONFIGURATION ===\n");
-
-    initialVehicles = getValidatedInput(
-        "Enter initial vehicles per direction (1-100): ",
-        1, QUEUE_CAPACITY);
-
-    signalDuration = getValidatedInput(
-        "Enter green signal duration (1-120 seconds): ",
-        1, MAX_SIGNAL_DURATION);
-
-    trafficDensity = getValidatedInput(
-        "Enter traffic density (0-100 vehicles per direction per 100 seconds): ",
-        0, SIM_MAX_ARRIVAL_RATE);
-
     sim_config_default(&config);
-    config.num_directions = NUM_DIRECTIONS;
-    config.initial_vehicles = initialVehicles;
-    config.green_ticks = signalDuration;
-    config.total_ticks = chooseRunLength(signalDuration, config.yellow_ticks);
-
-    sim_config_set_traffic_density(&config, trafficDensity);
-
     if (!sim_config_validate(&config, error, sizeof error)) {
         fprintf(stderr, "Error: %s.\n", error);
         return EXIT_FAILURE;
     }
 
-    printf("\nConfiguration saved for this run.\n");
-    printf("Initial vehicles: %d per direction\n", initialVehicles);
-    printf("Green signal duration: %d seconds per direction\n",
-           signalDuration);
-    printf("Traffic density: %d vehicles per direction per 100 seconds\n",
-           trafficDensity);
-    printf("Simulated time: %d seconds\n", config.total_ticks);
-
     printf("\nTRAFFIC MANAGEMENT SIMULATION\n");
-    printf("Controls use whole-line commands between ticks; no background timer is used.\n");
+    printf("Use load, edit, start, and quit to configure and run the simulation.\n");
     return runWithControls(&config, &stats) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

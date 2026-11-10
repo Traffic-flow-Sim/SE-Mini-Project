@@ -13,6 +13,7 @@ void sim_config_default(SimConfig *config)
 
     config->num_directions = SIM_MAX_DIRECTIONS;
     config->initial_vehicles = 10;
+    config->queue_capacity = QUEUE_CAPACITY;
     config->green_ticks = 5;
     config->yellow_ticks = 1;
     config->discharge_per_tick = 1;
@@ -78,8 +79,10 @@ int sim_config_validate(const SimConfig *config, char *error, size_t error_size)
     /* num_directions is checked first: the density check below relies on it. */
     return in_range("number of directions", config->num_directions,
                     SIM_MIN_DIRECTIONS, SIM_MAX_DIRECTIONS, error, error_size)
+        && in_range("queue capacity", config->queue_capacity,
+                    1, QUEUE_CAPACITY, error, error_size)
         && in_range("initial vehicles", config->initial_vehicles,
-                    0, QUEUE_CAPACITY, error, error_size)
+                    0, config->queue_capacity, error, error_size)
         && densities_in_range(config, error, error_size)
         && in_range("green duration", config->green_ticks,
                     SIM_MIN_GREEN_TICKS, SIM_MAX_GREEN_TICKS, error, error_size)
@@ -218,12 +221,13 @@ int sim_session_start(SimSession *session, const SimConfig *config,
     session->next_tick = 0;
     session->audit_count = 0;
     stats_init(stats);
-    for (d = 0; d < config->num_directions; d++) {
-    queue_init(&session->queues[d]);
+    for (d = 0; d < SIM_MAX_DIRECTIONS; d++) {
+        queue_init(&session->queues[d]);
+        session->queues[d].capacity = config->queue_capacity;
 
-    /* Before the simulation begins, all signals are RED. */
-    session->previous_signal[d] = SIM_SIGNAL_RED;
-}
+        /* Before the simulation begins, all signals are RED. */
+        session->previous_signal[d] = SIM_SIGNAL_RED;
+    }
 
     session->state = SIM_SESSION_RUNNING;
     return 1;

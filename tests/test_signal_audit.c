@@ -15,6 +15,7 @@ static SimConfig audit_test_config(void)
 
     config.num_directions = 2;
     config.initial_vehicles = 0;
+    config.queue_capacity = QUEUE_CAPACITY;
     sim_config_set_traffic_density(&config, 0);
     config.green_ticks = 2;
     config.yellow_ticks = 1;

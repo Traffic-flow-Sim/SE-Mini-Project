@@ -11,6 +11,7 @@ void queue_init(VehicleQueue *queue)
 
     queue->front = 0;
     queue->size = 0;
+    queue->capacity = QUEUE_CAPACITY;
     queue->dropped = 0;
 }
 
@@ -21,7 +22,8 @@ int queue_is_empty(const VehicleQueue *queue)
 
 int queue_is_full(const VehicleQueue *queue)
 {
-    return queue == NULL || queue->size == QUEUE_CAPACITY;
+    return queue == NULL || queue->size >= QUEUE_CAPACITY ||
+           queue->size >= queue->capacity;
 }
 
 int enqueue(VehicleQueue *queue, Vehicle vehicle)

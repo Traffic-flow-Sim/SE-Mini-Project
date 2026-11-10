@@ -20,6 +20,7 @@ static SimConfig make_config(int dirs, int initial, int rate,
 
     c.num_directions = dirs;
     c.initial_vehicles = initial;
+    c.queue_capacity = QUEUE_CAPACITY;
     sim_config_set_traffic_density(&c, rate);
     c.green_ticks = green;
     c.yellow_ticks = yellow;
@@ -62,6 +63,22 @@ static void test_config_boundaries(void)
 {
     BOUNDARY(num_directions, SIM_MIN_DIRECTIONS, SIM_MAX_DIRECTIONS, "directions");
     BOUNDARY(initial_vehicles, 0, QUEUE_CAPACITY, "initial vehicles");
+    {
+        SimConfig c;
+        char err[96];
+        sim_config_default(&c);
+        c.initial_vehicles = 0; /* isolate capacity from its initial-vehicle constraint */
+        c.queue_capacity = 1;
+        CHECK(sim_config_validate(&c, err, sizeof err) == 1);
+        c.queue_capacity = QUEUE_CAPACITY;
+        CHECK(sim_config_validate(&c, err, sizeof err) == 1);
+        c.queue_capacity = 0;
+        CHECK(sim_config_validate(&c, err, sizeof err) == 0);
+        CHECK(strstr(err, "queue capacity") != NULL);
+        c.queue_capacity = QUEUE_CAPACITY + 1;
+        CHECK(sim_config_validate(&c, err, sizeof err) == 0);
+        CHECK(strstr(err, "queue capacity") != NULL);
+    }
     BOUNDARY(arrival_rate[0], 0, SIM_MAX_ARRIVAL_RATE, "density");
     BOUNDARY(green_ticks, SIM_MIN_GREEN_TICKS, SIM_MAX_GREEN_TICKS, "green");
     BOUNDARY(yellow_ticks, SIM_MIN_YELLOW_TICKS, SIM_MAX_YELLOW_TICKS, "yellow");
@@ -90,6 +107,20 @@ static void test_density_is_validated_for_every_direction(void)
     c.num_directions = 2;
     c.arrival_rate[3] = 500;                        /* belongs to a direction that is not used */
     CHECK(sim_config_validate(&c, err, sizeof err) == 1);
+}
+
+static void test_logical_queue_capacity_is_enforced(void)
+{
+    SimConfig c = make_config(2, 3, 100, 1, 1, 1, 3);
+    SimStats stats;
+    c.queue_capacity = 2;
+    CHECK(sim_config_validate(&c, NULL, 0) == 0);
+    c.initial_vehicles = 2;
+    CHECK(sim_run(&c, &stats, NULL, NULL) == 1);
+    CHECK(stats.generated == 10); /* 4 initial plus 6 rate arrivals */
+    CHECK(stats.dropped > 0);
+    CHECK(stats.max_queue_length <= 2);
+    CHECK(stats_is_conserved(&stats));
 }
 
 static void test_set_traffic_density_sets_every_direction(void)
@@ -786,6 +817,7 @@ int main(void)
     printf("test_simulation\n");
     TEST_RUN(test_default_config_is_valid);
     TEST_RUN(test_config_boundaries);
+    TEST_RUN(test_logical_queue_capacity_is_enforced);
     TEST_RUN(test_density_is_validated_for_every_direction);
     TEST_RUN(test_set_traffic_density_sets_every_direction);
     TEST_RUN(test_config_validate_edge_cases);
