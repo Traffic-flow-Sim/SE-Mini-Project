@@ -116,18 +116,6 @@ static int chooseRunLength(int greenTicks, int yellowTicks)
     return twoCycles > MIN_RUN_TICKS ? twoCycles : MIN_RUN_TICKS;
 }
 
-/* Line-based commands keep control portable across the supported CI systems. */
-static int readControlCommand(char *command, size_t size)
-{
-    int status;
-
-    status = read_line_bounded(stdin, command, size);
-    if (status != 1) return status;
-    trim_command_whitespace(command);
-    return 1;
-}
-
-
 static void displayConfiguration(const SimConfig *config)
 {
     int d;
@@ -187,7 +175,7 @@ static int runWithControls(SimConfig *config, SimStats *stats)
 
     for (;;) {
         printf("\nConfigure: density, directions, green, yellow, capacity, initial, length. Type start or quit: ");
-        input_status = readControlCommand(command, sizeof command);
+        input_status = read_command_line(stdin, command, sizeof command);
         if (input_status == 0) {
             if (has_run) return 1;
             if (automatic) return 1;
@@ -222,7 +210,7 @@ static int runWithControls(SimConfig *config, SimStats *stats)
                    session.state == SIM_SESSION_RUNNING ? "running" : "paused",
                    session.next_tick, session.config.total_ticks);
             {
-                int command_status = readControlCommand(command, sizeof command);
+                int command_status = read_command_line(stdin, command, sizeof command);
                 if (command_status < 0) {
                     printf("Error: command is too long.\n");
                     continue;

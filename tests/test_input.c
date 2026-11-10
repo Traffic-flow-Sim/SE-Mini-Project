@@ -149,6 +149,19 @@ static void test_trim_command_whitespace(void)
     trim_command_whitespace(NULL);
 }
 
+static void test_command_line_distinguishes_oversized_input_from_eof(void)
+{
+    char command[8];
+    FILE *in = open_input("12345678\n  stop \t\n");
+
+    CHECK(in != NULL);
+    CHECK(read_command_line(in, command, sizeof command) == -1);
+    CHECK(read_command_line(in, command, sizeof command) == 1);
+    CHECK(strcmp(command, "stop") == 0);
+    CHECK(read_command_line(in, command, sizeof command) == 0);
+    close_input(in);
+}
+
 static void test_prompt_retries_until_valid_and_explains(void)
 {
     int value = 0;
@@ -211,6 +224,7 @@ int main(void)
     TEST_RUN(test_read_line_size_boundary);
     TEST_RUN(test_read_line_bad_arguments);
     TEST_RUN(test_trim_command_whitespace);
+    TEST_RUN(test_command_line_distinguishes_oversized_input_from_eof);
     TEST_RUN(test_prompt_retries_until_valid_and_explains);
     TEST_RUN(test_prompt_stops_at_end_of_input);
     return TEST_SUMMARY();

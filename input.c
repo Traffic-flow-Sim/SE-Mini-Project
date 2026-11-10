@@ -72,6 +72,16 @@ void trim_command_whitespace(char *text)
     if (start != text) memmove(text, start, (size_t)(end - start) + 1);
 }
 
+int read_command_line(FILE *in, char *buf, size_t size)
+{
+    int status = read_line_bounded(in, buf, size);
+
+    if (status < 0) return 0; /* EOF */
+    if (status == 0) return -1; /* overlong line was discarded */
+    trim_command_whitespace(buf);
+    return 1;
+}
+
 InputStatus parse_int_strict(const char *text, int min, int max, int *out)
 {
     char *end;
