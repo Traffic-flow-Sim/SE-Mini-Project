@@ -42,9 +42,23 @@ jobs:
       - name: Run application smoke test
         run: |
           # answers: initial vehicles, green duration, traffic density
-          printf '1\n1\n20\n' | ./traffic_management > run.log
+          python - <<'PY'
+          import os
+          import subprocess
+
+          executable = "./traffic_management.exe" if os.name == "nt" else "./traffic_management"
+          result = subprocess.run(
+              [executable], input="1\n1\n20\n", text=True,
+              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30,
+          )
+          with open("run.log", "w", encoding="utf-8") as log:
+              log.write(result.stdout)
+          if result.returncode != 0:
+              raise SystemExit(f"application exited with status {result.returncode}")
+          if "Integrity check       : OK" not in result.stdout:
+              raise SystemExit("application did not complete its piped-input smoke run")
+          PY
           tail -n 12 run.log
-          grep -q "Integrity check       : OK" run.log
           grep -q "Maximum queue length" run.log
 
       - name: Exercise simulation console controls
