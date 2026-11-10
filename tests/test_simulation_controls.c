@@ -20,6 +20,7 @@ static SimConfig short_config(void)
     sim_config_default(&config);
     config.num_directions = 2;
     config.initial_vehicles = 2;
+    config.queue_capacity = QUEUE_CAPACITY;
     sim_config_set_traffic_density(&config, 0);
     config.total_ticks = 4;
     return config;
@@ -176,6 +177,11 @@ static void test_finished_sessions_can_restart_and_repeated_runs_match(void)
     for (i = 0; i < config.total_ticks; i++) CHECK(sim_session_step(&session) == 1);
     CHECK(session.state == SIM_SESSION_COMPLETED);
     CHECK(sim_session_start(&session, &config, &second, NULL, NULL) == 1);
+    CHECK(session.generator.next_id == 1);
+    CHECK(session.next_tick == 0 && session.audit_count == 0);
+    CHECK(second.generated == 0 && second.passed == 0 && second.dropped == 0);
+    CHECK(session.previous_signal[0] == SIM_SIGNAL_RED);
+    CHECK(session.queues[0].size == 0 && session.queues[0].capacity == config.queue_capacity);
     for (i = 0; i < config.total_ticks; i++) CHECK(sim_session_step(&session) == 1);
     CHECK(session.state == SIM_SESSION_COMPLETED);
     CHECK(first.generated == second.generated);
@@ -184,6 +190,16 @@ static void test_finished_sessions_can_restart_and_repeated_runs_match(void)
     CHECK(first.dropped == second.dropped);
     CHECK(first.total_wait == second.total_wait);
     CHECK(stats_is_conserved(&second) == 1);
+
+    CHECK(sim_session_stop(&session) == 0); /* completed sessions remain terminal */
+    config.initial_vehicles = 1;
+    config.total_ticks = 1;
+    CHECK(sim_session_start(&session, &config, &second, NULL, NULL) == 1);
+    CHECK(second.generated == 0 && session.generator.next_id == 1);
+    CHECK(sim_session_step(&session) == 1);
+    CHECK(session.state == SIM_SESSION_COMPLETED);
+    CHECK(second.generated == 2);
+    CHECK(stats_is_conserved(&second));
 }
 
 int main(void)
