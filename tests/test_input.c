@@ -151,8 +151,8 @@ static void test_trim_command_whitespace(void)
 
 static void test_command_line_distinguishes_oversized_input_from_eof(void)
 {
-    char command[8];
-    FILE *in = open_input("12345678\n  stop \t\n");
+    char command[16];
+    FILE *in = open_input("1234567890123456\n  stop \t\n");
 
     CHECK(in != NULL);
     CHECK(read_command_line(in, command, sizeof command) == -1);
