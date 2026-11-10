@@ -111,7 +111,7 @@ The program asks for:
 - Number of intersections: `1-3`.
 - Initial vehicles per direction: `1-100`.
 - Green signal duration: `1-120`.
-- Traffic density: `0–100` vehicles per direction per 100 seconds.
+- Traffic density: `0-100` vehicles per direction per 100 seconds.
 
 Each intersection receives its own configuration.
 
