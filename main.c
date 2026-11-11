@@ -10,6 +10,8 @@
 #include "simulation.h"
 #include "stats.h"
 #include "multi_intersection_cli.h"
+#include "audit_log.h"
+static void record_configuration_audit(const char *description);
 
 #define NUM_DIRECTIONS SIM_MAX_DIRECTIONS
 
@@ -204,6 +206,7 @@ static int loadConfiguration(SimConfig *config)
         return 0;
     }
     *config = candidate;
+    record_configuration_audit("Configuration loaded from CSV");
     printf("Configuration loaded.\n");
     displayConfiguration(config);
     return 1;
@@ -229,17 +232,103 @@ static void saveConfiguration(const SimConfig *config)
     }
 }
 
-static void editConfiguration(SimConfig *config)
+
+static int configurations_equal(
+    const SimConfig *a,
+    const SimConfig *b)
+{
+    int i;
+
+    if (a->num_directions != b->num_directions ||
+        a->initial_vehicles != b->initial_vehicles ||
+        a->queue_capacity != b->queue_capacity ||
+        a->green_ticks != b->green_ticks ||
+        a->yellow_ticks != b->yellow_ticks ||
+        a->discharge_per_tick != b->discharge_per_tick ||
+        a->total_ticks != b->total_ticks) {
+        return 0;
+    }
+
+    for (i = 0; i < SIM_MAX_DIRECTIONS; i++) {
+        if (a->arrival_rate[i] != b->arrival_rate[i]) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static void record_configuration_audit(const char *description)
+{
+    if (!audit_log_config_change(
+            "traffic_audit.log",
+            1,
+            description)) {
+        fprintf(
+            stderr,
+            "\nWarning: Could not write configuration audit log.\n");
+    }
+}
+
+
+
+static int editConfiguration(SimConfig *config)
 {
     char command[32];
     int status;
+    SimConfig original = *config;
+
     for (;;) {
         printf("\nEdit setting: density, directions, green, yellow, capacity, initial, length, done: ");
         status = read_command_line(stdin, command, sizeof command);
-        if (status == 0 || (status == 1 && strcmp(command, "done") == 0)) return;
-        if (status < 0) printf("Error: command is too long.\n");
-        else if (!configureOption(config, command))
+
+        if (status == 0 ||
+            (status == 1 && strcmp(command, "done") == 0)) {
+            break;
+        }
+
+        if (status < 0) {
+            printf("Error: command is too long.\n");
+        } else if (!configureOption(config, command)) {
             printf("Error: choose a listed setting or done.\n");
+        }
+    }
+
+    return !configurations_equal(&original, config);
+}
+
+static void persist_session_audit(
+    const SimSession *session,
+    int intersection_id,
+    size_t *logged_count,
+    int *warning_shown)
+{
+    size_t count = sim_session_audit_count(session);
+
+    while (*logged_count < count) {
+        const SimSignalAuditEntry *entry =
+            sim_session_audit_get(session, *logged_count);
+
+        if (entry == NULL ||
+            !audit_log_signal(
+                "traffic_audit.log",
+                intersection_id,
+                entry->tick,
+                entry->direction,
+                entry->previous_signal,
+                entry->new_signal)) {
+
+            if (!*warning_shown) {
+                fprintf(
+                    stderr,
+                    "\nWarning: Could not write traffic audit log.\n");
+                *warning_shown = 1;
+            }
+
+            return;
+        }
+
+        (*logged_count)++;
     }
 }
 
@@ -248,6 +337,8 @@ static int runOne(const SimConfig *config, SimStats *stats)
     SimSession session = {0};
     char command[32];
     int status;
+    size_t logged_audit_count = 0;
+    int audit_warning_shown = 0;
 
     displayConfiguration(config);
     if (!sim_session_start(&session, config, stats, displayTick, stats)) {
@@ -270,7 +361,15 @@ static int runOne(const SimConfig *config, SimStats *stats)
             break;
         }
         if (strcmp(command, "") == 0 || strcmp(command, "step") == 0) {
-            if (!sim_session_step(&session)) printf("Error: session cannot advance now.\n");
+            if (!sim_session_step(&session)) {
+                printf("Error: session cannot advance now.\n");
+            } else {
+                persist_session_audit(
+                    &session,
+                    1,
+                    &logged_audit_count,
+                    &audit_warning_shown);
+            }
         } else if (strcmp(command, "pause") == 0) {
             if (!sim_session_pause(&session)) printf("Error: pause is only valid while running.\n");
             else printf("Paused at tick %u. Generation and signal processing are stopped.\n", session.next_tick);
@@ -302,8 +401,12 @@ static int runWithControls(SimConfig *config, SimStats *stats)
         if (status < 0) printf("Error: command is too long.\n");
         else if (strcmp(command, "quit") == 0) return 1;
         else if (strcmp(command, "load") == 0) (void)loadConfiguration(config);
-        else if (strcmp(command, "edit") == 0) {
-            editConfiguration(config);
+                else if (strcmp(command, "edit") == 0) {
+            if (editConfiguration(config)) {
+                record_configuration_audit(
+                    "Interactive configuration settings changed");
+            }
+
             displayConfiguration(config);
         } else if (strcmp(command, "start") == 0) {
             if (!runOne(config, stats)) return 0;

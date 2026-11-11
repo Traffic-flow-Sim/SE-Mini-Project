@@ -3,6 +3,7 @@
 
 #include "input.h"
 #include "queue.h"
+#include "audit_log.h"
 #include "multi_intersection.h"
 #include "multi_intersection_cli.h"
 
@@ -28,8 +29,7 @@ static int choose_multi_run_length(int green_ticks, int yellow_ticks)
     return two_cycles > 60 ? two_cycles : 60;
 }
 
-static int configure_intersections(
-    SimMultiIntersection *manager)
+static int configure_intersections(SimMultiIntersection *manager)
 {
     SimConfig configs[SIM_MAX_INTERSECTIONS];
     int count;
@@ -79,19 +79,25 @@ static int configure_intersections(
 
         sim_config_set_traffic_density(&configs[i], density);
 
-        if (!sim_config_validate(&configs[i], NULL, 0)) {
-            fprintf(stderr,
-                    "Error: Invalid configuration for intersection %d.\n",
-                    i + 1);
-            return 0;
-        }
-
         printf("Intersection %d configuration saved.\n", i + 1);
     }
 
     if (!sim_multi_init(manager, count, configs)) {
         fprintf(stderr, "Error: Could not initialize intersections.\n");
         return 0;
+    }
+
+    for (i = 0; i < count; i++) {
+        if (!audit_log_config_change(
+                "traffic_audit.log",
+                manager->intersections[i].id,
+                "Multi-intersection configuration created")) {
+            fprintf(
+                stderr,
+                "Warning: Could not audit configuration for "
+                "intersection %d.\n",
+                manager->intersections[i].id);
+        }
     }
 
     return 1;
@@ -305,6 +311,53 @@ static void display_multi_final_reports(
     printf("==========================================================\n");
 }
 
+static void persist_multi_intersection_audit(
+    SimMultiIntersection *manager,
+    size_t logged_counts[SIM_MAX_INTERSECTIONS],
+    int warning_shown[SIM_MAX_INTERSECTIONS])
+{
+    int i;
+
+    for (i = 0; i < manager->count; i++) {
+        SimIntersection *intersection =
+            &manager->intersections[i];
+
+        size_t audit_count =
+            sim_session_audit_count(&intersection->session);
+
+        while (logged_counts[i] < audit_count) {
+            const SimSignalAuditEntry *entry =
+                sim_session_audit_get(
+                    &intersection->session,
+                    logged_counts[i]);
+
+            if (entry == NULL ||
+                !audit_log_signal(
+                    "traffic_audit.log",
+                    intersection->id,
+                    entry->tick,
+                    entry->direction,
+                    entry->previous_signal,
+                    entry->new_signal)) {
+
+                if (!warning_shown[i]) {
+                    fprintf(
+                        stderr,
+                        "\nWarning: Could not persist audit events "
+                        "for intersection %d.\n",
+                        intersection->id);
+
+                    warning_shown[i] = 1;
+                }
+
+                break;
+            }
+
+            logged_counts[i]++;
+        }
+    }
+}
+
 static int run_multi_controls(SimMultiIntersection *manager)
 {
     char command[64];
@@ -313,6 +366,8 @@ static int run_multi_controls(SimMultiIntersection *manager)
     int result;
     int intersection_id;
     int i;
+    size_t logged_counts[SIM_MAX_INTERSECTIONS] = {0};
+    int audit_warning_shown[SIM_MAX_INTERSECTIONS] = {0};
 
     printf("\nType start to begin (or quit to exit): ");
 
@@ -339,11 +394,27 @@ static int run_multi_controls(SimMultiIntersection *manager)
     started = 1;
     printf("\nAll %d intersections started.\n", manager->count);
 
-    if (automatic) {
-        while (sim_multi_step(manager)) {
-            display_multi_live_status(manager);
+        persist_multi_intersection_audit(
+        manager,
+        logged_counts,
+        audit_warning_shown);
+
+        if (automatic) {
+            for (;;) {
+                result = sim_multi_step(manager);
+
+                persist_multi_intersection_audit(
+                manager,
+                logged_counts,
+                audit_warning_shown);
+
+                if (!result) {
+                break;
+            }
+
+                display_multi_live_status(manager);
         }
-    } else {
+        } else {
         while (has_active_intersections(manager)) {
             printf("\nCommands: step | pause N | resume N | stop N | quit\n");
             printf("multi> ");
@@ -363,7 +434,15 @@ static int run_multi_controls(SimMultiIntersection *manager)
 
             if (strcmp(command, "") == 0 ||
                 strcmp(command, "step") == 0) {
-                if (sim_multi_step(manager)) {
+
+                result = sim_multi_step(manager);
+
+                persist_multi_intersection_audit(
+                    manager,
+                    logged_counts,
+                    audit_warning_shown);
+
+                if (result) {
                     display_multi_live_status(manager);
                 } else {
                     printf("No running intersection could advance. "
