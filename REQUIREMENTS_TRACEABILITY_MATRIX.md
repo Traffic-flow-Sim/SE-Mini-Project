@@ -65,7 +65,7 @@ The local benchmark used:
 - Vehicles remaining: 5.
 - Maximum queue length: 2.
 - Average waiting time: 8.20 ticks.
-- Recorded CPU time: 0.003000 seconds.
+- Recorded CPU time: 0.001000 seconds.
 
 The workload represents approximately 1000 generated vehicles over one simulated hour. The observed CPU time is specific to the machine used for this test.
 
@@ -107,9 +107,9 @@ The workload represents approximately 1000 generated vehicles over one simulated
 | Item | Required evidence | Current state |
 |---|---|---|
 | Cross-platform CI | Successful GitHub Actions runs on Ubuntu, macOS and Windows | Pending remote verification |
-| Architecture documentation | Architecture description consistent with actual modules and central simulation controller | Pending |
-| Final test report | Consolidated unit, integration, security and benchmark results | Pending |
-| Demo script | Reproducible demonstration steps and expected outputs | Pending |
+| Architecture documentation | Architecture description consistent with actual modules and central simulation controller | Created and committed |
+| Final test report | Consolidated unit, integration, security and benchmark results | Created and committed |
+| Demo script | Reproducible demonstration steps and expected outputs | Created and committed |
 | Security gaps | Implement or formally document the limitations of TFS-S-001, S-003 and S-004 | Outstanding |
 | Jira traceability | Sprint stories marked Done and linked to relevant commits | Pending |
 
@@ -119,6 +119,6 @@ The simulator has substantial functional and local test coverage, including queu
 
 The performance benchmark passed locally for 1008 generated vehicles over 3600 simulated ticks.
 
-The project is not yet ready to claim complete SRS compliance. Persistent append-only logging, timestamped configuration-change auditing, complete cross-platform CI evidence and final release documentation remain outstanding.
+The project is not yet ready to claim complete SRS compliance. Persistent append-only logging and timestamped configuration-change auditing remain unimplemented; successful cross-platform CI evidence and Jira completion remain outstanding.
 
 This matrix records the current implementation evidence and must be updated when additional requirements are implemented and verified.

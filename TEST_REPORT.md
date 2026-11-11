@@ -211,7 +211,8 @@ Passing unit tests do not automatically establish complete SRS compliance. Refer
 | Performance benchmark report | Created and committed |
 | Local unit and integration tests | 10 of 10 suites passed |
 | Consolidated test report | Created |
-| Demo script | Outstanding |
+| Demo script | Created and committed |
+| README build, run and verification instructions | Updated and committed |
 | Remote Ubuntu/macOS/Windows CI verification | Pending |
 | Remote sanitizer and Valgrind verification | Pending |
 | Jira story completion and commit linkage | Pending confirmation |
