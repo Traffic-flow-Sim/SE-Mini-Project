@@ -32,14 +32,14 @@ Test filenames refer to the repository's `tests/` directory.
 | TFS-F-030 | Record vehicle waiting times and calculate average waiting time. | `stats.c`, `simulation.c` | TC-Rep-01; `test_stats.c`, `test_simulation.c` | PASS |
 | TFS-F-031 | Record maximum queue length. | `stats.c`, `simulation.c` | TC-Rep-02; `test_stats.c`, `test_simulation.c` | PASS |
 | TFS-F-032 | Produce a simulation summary report. | `stats.c`, `main.c` | TC-Rep-03; `test_stats.c`, `test_simulation.c` | PASS |
-| TFS-F-040 | Configure arrival rates, signal durations and simulation layout before running. | `main.c`, `multi_intersection_cli.c`, `simulation.c`, `config_file.c` | TC-Cfg-01; `test_input.c`, `test_config_file.c`, `test_multi_intersection.c` | PARTIAL |
+| TFS-F-040 | Configure arrival rate, signal timing and number of lanes/intersections. | `main.c`, `multi_intersection_cli.c`, `simulation.c`, `config_file.c` | TC-Cfg-01; `test_input.c`, `test_config_file.c`, `test_multi_intersection.c` | PARTIAL |
 | TFS-F-041 | Reset and rerun with new parameters without restarting the application. | `main.c`, `simulation.c` | TC-Cfg-02; `test_simulation_controls.c`; interactive load/edit/start workflow | PASS |
 | TFS-F-042 | Save the current configuration to a file. | `config_file.c`, `main.c` | TC-Cfg-03; `test_config_file.c` | PASS |
 
 ### Functional requirement notes
 
 - TFS-F-022 records signal transitions in the simulation audit history and persists them to `traffic_audit.log` with wall-clock timestamps, simulation ticks, direction and intersection ID. Single- and multi-intersection logging was manually verified, and `test_audit_log.c` verifies persistent event writing.
-- TFS-F-040 supports configurable directional traffic rates, signal durations and intersection setup. The complete SRS interpretation of configurable lane counts needs confirmation before marking this fully passed.
+- TFS-F-040 supports configurable directional traffic rates, signal durations and intersection setup. Configurable lane counts are not implemented; the current simulation models one queue per direction. Therefore, this requirement remains PARTIAL.
 - TFS-F-041 is supported by the interactive workflow, which returns to the command menu after a run and allows editing or loading settings before another run.
 
 ## 3. Non-Functional Requirements

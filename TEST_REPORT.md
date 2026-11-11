@@ -193,7 +193,7 @@ Current assessment:
 
 Important outstanding requirements include:
 
-- TFS-F-040: the complete SRS interpretation of configurable lane counts requires confirmation.
+- TFS-F-040: configurable lane counts are not implemented. The current model supports configurable directions and intersections, with one queue per direction.
 - TFS-NFR-005: cross-platform execution needs successful remote CI evidence.
 - TFS-S-001: equivalent configuration-file access restrictions on Windows are not established by the application.
 - TFS-S-003: persistent append-mode logging is implemented, but protection against external modification or deletion is not established.
