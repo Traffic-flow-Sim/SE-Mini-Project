@@ -48,7 +48,7 @@ Test filenames refer to the repository's `tests/` directory.
 |---|---|---|---|---|
 | TFS-NFR-001 | Complete a simulation equivalent to 1000 vehicles per hour without noticeable lag. | `simulation.c`, `vehicle_generator.c` | TC-NFR-01; `benchmarks/benchmark_performance.c` | PASS |
 | TFS-NFR-002 | Prevent vehicle loss or duplication during queue operations. | `queue.c`, `simulation.c`, `stats.c` | TC-NFR-02; `test_queue_integrity.c`, `test_simulation.c`, `test_multi_intersection.c` | PASS |
-| TFS-NFR-003 | Provide understandable configuration and report presentation. | `main.c`, `multi_intersection_cli.c`, `stats.c` | TC-NFR-03; manual console inspection and report tests | PARTIAL |
+| TFS-NFR-003 | Provide understandable configuration and report presentation. | `main.c`, `multi_intersection_cli.c`, `stats.c` | TC-NFR-03; manual walkthrough of standard and multi-intersection configuration, live status, pause/resume/stop controls, individual reports and combined reports | PASS |
 | TFS-NFR-004 | Maintain modular separation of simulator components. | All core modules | TC-NFR-04; source-module and dependency inspection | PASS |
 | TFS-NFR-005 | Support Windows, Linux and macOS execution. | Source modules, `.github/workflows/ci.yml` | TC-NFR-05; configured CI matrix; remote results still required | NOT VERIFIED |
 
@@ -120,6 +120,6 @@ The simulator has substantial functional and local test coverage, including queu
 
 The performance benchmark passed locally for 1008 generated vehicles over 3600 simulated ticks.
 
-The project is not yet ready to claim complete SRS compliance. Timestamped signal-state logging and configuration-change auditing are implemented and locally verified. TFS-S-003 remains PARTIAL because append-mode logging does not prevent external modification or deletion of the audit file. TFS-F-040 and TFS-NFR-003 also remain PARTIAL, while TFS-NFR-005 requires successful cross-platform CI evidence. Jira completion remains outstanding.
+The project is not yet ready to claim complete SRS compliance. Timestamped signal-state logging and configuration-change auditing are implemented and locally verified. TFS-S-003 remains PARTIAL because append-mode logging does not prevent external modification or deletion of the audit file. TFS-F-040 also remains PARTIAL, while TFS-NFR-005 requires successful cross-platform CI evidence. Jira completion remains outstanding.
 
 This matrix records the current implementation evidence and must be updated when additional requirements are implemented and verified.

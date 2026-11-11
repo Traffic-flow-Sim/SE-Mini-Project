@@ -188,16 +188,17 @@ Current assessment:
 | Requirement category | PASS | PARTIAL | NOT VERIFIED | NOT IMPLEMENTED |
 |---|---:|---:|---:|---:|
 | Functional | 14 | 1 | 0 | 0 |
-| Non-functional | 3 | 1 | 1 | 0 |
+| Non-functional | 4 | 0 | 1 | 0 |
 | Security | 3 | 2 | 0 | 0 |
 
 Important outstanding requirements include:
 
 - TFS-F-040: the complete SRS interpretation of configurable lane counts requires confirmation.
-- TFS-NFR-003: the usability and understandability of configuration and reports require further assessment.
 - TFS-NFR-005: cross-platform execution needs successful remote CI evidence.
 - TFS-S-001: equivalent configuration-file access restrictions on Windows are not established by the application.
 - TFS-S-003: persistent append-mode logging is implemented, but protection against external modification or deletion is not established.
+
+TFS-NFR-003 was manually verified through both the standard and multi-intersection interfaces. The walkthrough covered configuration prompts, live status presentation, pause/resume/stop controls, individual reports and combined reports. The displayed vehicle totals and integrity checks were consistent. The requirement is marked PASS.
 
 TFS-F-022 signal-state logging and TFS-S-004 timestamped configuration auditing have been implemented and locally verified.
 
@@ -230,6 +231,6 @@ Persistent timestamped signal-state logging and configuration-change auditing ha
 
 The simulator demonstrates substantial functional coverage across queue management, vehicle generation, signal scheduling, configuration, statistics and multi-intersection operation.
 
-Complete release acceptance and full SRS compliance cannot yet be claimed. Cross-platform GitHub Actions results remain pending, and TFS-F-040, TFS-NFR-003, TFS-NFR-005, TFS-S-001 and TFS-S-003 require further verification or improvement. Jira story completion and commit linkage also remain to be confirmed.
+Complete release acceptance and full SRS compliance cannot yet be claimed. Cross-platform GitHub Actions results remain pending, and TFS-F-040, TFS-NFR-005, TFS-S-001 and TFS-S-003 require further verification or improvement. Jira story completion and commit linkage also remain to be confirmed.
 
 This report records the evidence available on 11 November 2026 and should be updated when the outstanding release checks are completed.
