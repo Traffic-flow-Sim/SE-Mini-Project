@@ -42,10 +42,11 @@ The test executables were freshly compiled before execution. Existing generated 
 
 ## 3. Unit and Integration Test Results
 
-All ten test suites compiled successfully and executed with exit code zero.
+All eleven test suites compiled successfully and executed with exit code zero.
 
 | Test suite | Verification area | Reported checks | Result |
 |---|---|---:|---|
+| test_audit_log | Persistent signal/configuration logging, append behaviour, sanitization and error handling | 41 | PASS |
 | test_config_file | CSV configuration save/load, validation and error handling | 33 | PASS |
 | test_input | Numeric parsing, boundaries, oversized input, EOF and CRLF | 66 | PASS |
 | test_multi_intersection | Independent intersections, signals, queues, controls and statistics | 120 | PASS |
@@ -59,14 +60,14 @@ All ten test suites compiled successfully and executed with exit code zero.
 
 ### 3.1 Test summary
 
-- Total test suites: 10
-- Successful builds: 10
-- Successful executions: 10
+- Total test suites: 11
+- Successful builds: 11
+- Successful executions: 11
 - Build failures: 0
 - Execution failures: 0
-- Individually reported checks passed: 13,096
+- Individually reported checks passed: 13,137
 
-The queue test suite did not print an individual check count. Therefore, 13,096 is the sum of the reported checks from the other nine suites, not a total including an assumed count for the queue suite.
+The queue test suite did not print an individual check count. Therefore, 13,137 is the sum of the reported checks from the other ten suites, not a total including an assumed count for the queue suite.
 
 ### 3.2 Important verified behaviours
 
@@ -137,15 +138,15 @@ Detailed configuration and reproducibility instructions are in `PERFORMANCE_BENC
 | Configuration validation | Strict CSV schema and value validation | PASS |
 | Malformed configuration handling | Rejected files preserve the existing configuration | PASS |
 | Configuration-file permissions | POSIX owner-only permissions are implemented; Windows relies on inherited directory permissions | PARTIAL |
-| Persistent append-only logs | No persistent append-only logging implementation demonstrated | NOT IMPLEMENTED |
-| Timestamped configuration audit | No configuration-change audit log demonstrated | NOT IMPLEMENTED |
+| Persistent append-mode audit logging | Signal transitions and configuration changes are timestamped and appended to `traffic_audit.log`; external tampering or deletion is not prevented | PARTIAL |
+| Timestamped configuration audit | Interactive configuration changes, successful CSV loads and multi-intersection configuration creation are recorded with timestamps and intersection IDs | PASS |
 
 ### 5.1 Security limitations
 
 1. Configuration saving applies owner read/write permissions (0600) on POSIX systems. Windows access control relies on inherited directory permissions.
 2. User input and configuration values are validated using bounded parsing and explicit range checks.
-3. Signal-state audit entries are stored in memory with simulation tick values. This is not persistent append-only logging.
-4. Configuration changes are not currently recorded in a separate timestamped audit log.
+3. Signal-state and configuration audit entries are persisted in `traffic_audit.log` using append mode, with wall-clock timestamps and relevant simulation details.
+4. Append mode does not make the log tamper-proof. External processes or users with filesystem permissions may still modify or delete the log.
 5. The configuration loader uses generic error messages and does not expose the supplied file path in those messages.
 
 These limitations must be considered when assessing complete SRS security compliance.
@@ -170,7 +171,7 @@ Configured checks include:
 6. Traffic-density tests.
 7. Configuration save/load and overwrite tests.
 8. Invalid, oversized and incomplete input tests.
-9. All ten test suites.
+9. All eleven test suites, including persistent audit-log tests.
 10. Ubuntu AddressSanitizer and UndefinedBehaviorSanitizer checks.
 11. Ubuntu Valgrind memory checks.
 
@@ -186,18 +187,19 @@ Current assessment:
 
 | Requirement category | PASS | PARTIAL | NOT VERIFIED | NOT IMPLEMENTED |
 |---|---:|---:|---:|---:|
-| Functional | 13 | 2 | 0 | 0 |
+| Functional | 14 | 1 | 0 | 0 |
 | Non-functional | 3 | 1 | 1 | 0 |
-| Security | 2 | 1 | 0 | 2 |
+| Security | 3 | 2 | 0 | 0 |
 
 Important outstanding requirements include:
 
-- TFS-F-022: persistent timestamped signal-state logging is not demonstrated.
 - TFS-F-040: the complete SRS interpretation of configurable lane counts requires confirmation.
+- TFS-NFR-003: the usability and understandability of configuration and reports require further assessment.
 - TFS-NFR-005: cross-platform execution needs successful remote CI evidence.
 - TFS-S-001: equivalent configuration-file access restrictions on Windows are not established by the application.
-- TFS-S-003: persistent append-only logging is not implemented.
-- TFS-S-004: timestamped configuration-change auditing is not implemented.
+- TFS-S-003: persistent append-mode logging is implemented, but protection against external modification or deletion is not established.
+
+TFS-F-022 signal-state logging and TFS-S-004 timestamped configuration auditing have been implemented and locally verified.
 
 Passing unit tests do not automatically establish complete SRS compliance. Refer to the RTM for the evidence and status of each requirement.
 
@@ -209,23 +211,25 @@ Passing unit tests do not automatically establish complete SRS compliance. Refer
 | Layered architecture documentation | Created and committed |
 | Performance benchmark source | Created and committed |
 | Performance benchmark report | Created and committed |
-| Local unit and integration tests | 10 of 10 suites passed |
+| Local unit and integration tests | 11 of 11 suites passed |
 | Consolidated test report | Created |
 | Demo script | Created and committed |
 | README build, run and verification instructions | Updated and committed |
 | Remote Ubuntu/macOS/Windows CI verification | Pending |
 | Remote sanitizer and Valgrind verification | Pending |
 | Jira story completion and commit linkage | Pending confirmation |
-| Outstanding security requirements | Documented; implementation gaps remain |
+| Outstanding security requirements | S-003 and S-001 remain partial; limitations documented |
 
 ## 9. Conclusion
 
-The local Windows verification completed successfully. All ten freshly compiled test suites passed, with zero build or execution failures and 13,096 individually reported checks passing across nine suites.
+The local Windows verification completed successfully. All eleven freshly compiled test suites passed, with zero build or execution failures and 13,137 individually reported checks passing across ten suites. The queue test suite passed but did not report an individual check count.
 
-The performance benchmark also passed for 1,008 generated vehicles over 3,600 simulated seconds, with zero dropped vehicles and a successful conservation check.
+The performance benchmark also passed for 1,008 generated vehicles over 3,600 simulated seconds, with zero dropped vehicles and a successful vehicle conservation check.
+
+Persistent timestamped signal-state logging and configuration-change auditing have been implemented and locally verified. However, append-mode logging does not prevent external modification or deletion, so TFS-S-003 remains partially satisfied.
 
 The simulator demonstrates substantial functional coverage across queue management, vehicle generation, signal scheduling, configuration, statistics and multi-intersection operation.
 
-However, complete release acceptance and full SRS compliance cannot yet be claimed. Cross-platform CI results remain pending, and persistent append-only logging and timestamped configuration-change auditing remain unimplemented.
+Complete release acceptance and full SRS compliance cannot yet be claimed. Cross-platform GitHub Actions results remain pending, and TFS-F-040, TFS-NFR-003, TFS-NFR-005, TFS-S-001 and TFS-S-003 require further verification or improvement. Jira story completion and commit linkage also remain to be confirmed.
 
 This report records the evidence available on 11 November 2026 and should be updated when the outstanding release checks are completed.

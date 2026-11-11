@@ -28,7 +28,7 @@ Test filenames refer to the repository's `tests/` directory.
 | TFS-F-013 | Maintain separate queues for directions and intersections. | `simulation.c`, `multi_intersection.c` | TC-Queue-04; `test_simulation.c`, `test_multi_intersection.c` | PASS |
 | TFS-F-020 | Cycle red, green and yellow signals using configurable durations. | `simulation.c` | TC-Sig-01; `test_simulation.c`, `test_signal_audit.c` | PASS |
 | TFS-F-021 | Maintain independent signal timing for each intersection. | `multi_intersection.c`, `simulation.c` | TC-Sig-02; `test_multi_intersection.c` | PASS |
-| TFS-F-022 | Record signal-state changes with simulation timestamps. | `simulation.c`, `main.c` | TC-Sig-03; `test_signal_audit.c` | PARTIAL |
+| TFS-F-022 | Record signal-state changes with simulation timestamps. | `simulation.c`, `main.c`, `multi_intersection_cli.c`, `audit_log.c` | TC-Sig-03; `test_signal_audit.c`, `test_audit_log.c` | PASS |
 | TFS-F-030 | Record vehicle waiting times and calculate average waiting time. | `stats.c`, `simulation.c` | TC-Rep-01; `test_stats.c`, `test_simulation.c` | PASS |
 | TFS-F-031 | Record maximum queue length. | `stats.c`, `simulation.c` | TC-Rep-02; `test_stats.c`, `test_simulation.c` | PASS |
 | TFS-F-032 | Produce a simulation summary report. | `stats.c`, `main.c` | TC-Rep-03; `test_stats.c`, `test_simulation.c` | PASS |
@@ -38,7 +38,7 @@ Test filenames refer to the repository's `tests/` directory.
 
 ### Functional requirement notes
 
-- TFS-F-022 records signal transitions in an in-memory audit history using simulation tick values. Persistent timestamped logging is not demonstrated.
+- TFS-F-022 records signal transitions in the simulation audit history and persists them to `traffic_audit.log` with wall-clock timestamps, simulation ticks, direction and intersection ID. Single- and multi-intersection logging was manually verified, and `test_audit_log.c` verifies persistent event writing.
 - TFS-F-040 supports configurable directional traffic rates, signal durations and intersection setup. The complete SRS interpretation of configurable lane counts needs confirmation before marking this fully passed.
 - TFS-F-041 is supported by the interactive workflow, which returns to the command menu after a run and allows editing or loading settings before another run.
 
@@ -75,22 +75,23 @@ The workload represents approximately 1000 generated vehicles over one simulated
 |---|---|---|---|---|
 | TFS-S-001 | Restrict configuration-file write access to an authorized local user or process. | `config_file.c` | TC-Sec-01; POSIX permission checks in `test_config_file.c` | PARTIAL |
 | TFS-S-002 | Validate and sanitize user-supplied configuration input. | `input.c`, `config_file.c`, `simulation.c` | TC-Sec-02; `test_input.c`, `test_config_file.c`, `test_simulation.c` | PASS |
-| TFS-S-003 | Keep logs and reports append-only during a simulation run. | `simulation.c`, `stats.c` | TC-Sec-03; no persistent append-only log implementation demonstrated | NOT IMPLEMENTED |
-| TFS-S-004 | Create a timestamped audit entry whenever configuration changes. | `main.c`, `config_file.c` | TC-Sec-04; no configuration-change audit implementation demonstrated | NOT IMPLEMENTED |
+| TFS-S-003 | Keep logs and reports append-only during a simulation run. | `audit_log.c`, `main.c`, `multi_intersection_cli.c` | TC-Sec-03; `test_audit_log.c` | PARTIAL |
+| TFS-S-004 | Create a timestamped audit entry whenever configuration changes. | `audit_log.c`, `main.c`, `multi_intersection_cli.c`, `config_file.c` | TC-Sec-04; `test_audit_log.c` and manual configuration-change verification | PASS |
 | TFS-S-005 | Handle malformed or corrupted configuration files safely without exposing internal file paths. | `config_file.c`, `input.c` | TC-Sec-05; `test_config_file.c`, `test_input.c` | PASS |
 
 ### Security verification notes
 
 1. On POSIX systems, `config_csv_save()` applies owner read/write permissions (`0600`). On Windows, the implementation relies on inherited directory permissions, so equivalent access restrictions have not been established by the application.
 2. Strict numeric parsing, bounded input, CSV schema checks and configuration validation are covered by local tests.
-3. Signal audit information is maintained in memory. This does not establish append-only persistent logging.
-4. Configuration changes are not currently recorded in a separate timestamped audit log.
+3. Signal and configuration audit entries are persisted using append-mode file operations. The application does not provide tamper protection against external modification or deletion of the log; therefore, TFS-S-003 remains PARTIAL.
+4. Timestamped configuration audit entries are generated for interactive configuration changes, successful CSV loads and multi-intersection configuration creation. These paths were manually verified.
 5. The CSV loader uses generic error messages and does not include the supplied file path in its error messages.
 
 ## 5. Test Inventory
 
 | Test file | Main verification areas |
 |---|---|
+| `test_audit_log.c` | Persistent signal and configuration audit entries, append behaviour, sanitization, invalid arguments and file errors |
 | `test_config_file.c` | CSV save/load, malformed schemas, invalid values, oversized rows, permissions and file errors |
 | `test_input.c` | Numeric validation, boundaries, oversized input, EOF, CRLF and invalid arguments |
 | `test_multi_intersection.c` | Independent intersections, queues, signals, controls, statistics and conservation |
@@ -110,7 +111,7 @@ The workload represents approximately 1000 generated vehicles over one simulated
 | Architecture documentation | Architecture description consistent with actual modules and central simulation controller | Created and committed |
 | Final test report | Consolidated unit, integration, security and benchmark results | Created and committed |
 | Demo script | Reproducible demonstration steps and expected outputs | Created and committed |
-| Security gaps | Implement or formally document the limitations of TFS-S-001, S-003 and S-004 | Outstanding |
+| Security gaps | TFS-S-003 remains partial because external log tampering is not prevented; TFS-S-001 remains partial | Partially addressed |
 | Jira traceability | Sprint stories marked Done and linked to relevant commits | Pending |
 
 ## 7. Overall Assessment
@@ -119,6 +120,6 @@ The simulator has substantial functional and local test coverage, including queu
 
 The performance benchmark passed locally for 1008 generated vehicles over 3600 simulated ticks.
 
-The project is not yet ready to claim complete SRS compliance. Persistent append-only logging and timestamped configuration-change auditing remain unimplemented; successful cross-platform CI evidence and Jira completion remain outstanding.
+The project is not yet ready to claim complete SRS compliance. Timestamped signal-state logging and configuration-change auditing are implemented and locally verified. TFS-S-003 remains PARTIAL because append-mode logging does not prevent external modification or deletion of the audit file. TFS-F-040 and TFS-NFR-003 also remain PARTIAL, while TFS-NFR-005 requires successful cross-platform CI evidence. Jira completion remains outstanding.
 
 This matrix records the current implementation evidence and must be updated when additional requirements are implemented and verified.
