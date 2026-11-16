@@ -127,6 +127,23 @@ static void test_read_line_size_boundary(void)
     close_input(f);
 }
 
+static void test_read_line_size_boundary_crlf(void)
+{
+    char buf[8];
+    FILE *f = open_input("1234567\r\n12345678\r\nok\r\n");
+
+    CHECK(f != NULL);
+    CHECK(read_line_bounded(f, buf, sizeof buf) == 1);
+    CHECK(strcmp(buf, "1234567") == 0);
+
+    CHECK(read_line_bounded(f, buf, sizeof buf) == 0);
+
+    CHECK(read_line_bounded(f, buf, sizeof buf) == 1);
+    CHECK(strcmp(buf, "ok") == 0);
+
+    close_input(f);
+}
+
 static void test_read_line_bad_arguments(void)
 {
     char buf[8];
@@ -222,6 +239,7 @@ int main(void)
     TEST_RUN(test_read_line_normal_crlf_and_eof);
     TEST_RUN(test_read_line_oversized_is_rejected_and_resyncs);
     TEST_RUN(test_read_line_size_boundary);
+    TEST_RUN(test_read_line_size_boundary_crlf);
     TEST_RUN(test_read_line_bad_arguments);
     TEST_RUN(test_trim_command_whitespace);
     TEST_RUN(test_command_line_distinguishes_oversized_input_from_eof);
