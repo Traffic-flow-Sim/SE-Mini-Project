@@ -50,6 +50,17 @@ int read_line_bounded(FILE *in, char *buf, size_t size)
         return 1;
     }
 
+    if (c == '\r') {
+        int next = getc(in);
+
+        if (next == '\n') {
+            /* Exactly-sized line with a Windows CRLF ending. */
+            return 1;
+        }
+
+        c = next;
+    }
+
     /* The line is too long. Discard the remaining characters. */
     while (c != '\n' && c != EOF) {
         c = getc(in);
